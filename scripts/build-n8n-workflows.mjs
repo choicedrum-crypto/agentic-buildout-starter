@@ -254,7 +254,7 @@ const config = node({
     parameters: {
       mode: 'manual',
       includeOtherFields: true,
-      assignments: { assignments: [{ id: 'config-object', name: 'config', type: 'object', value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", slack_review_channel: "#codex-review", public_n8n_base_url: "https://n8n.tradecredit.agency" } }}') }] }
+      assignments: { assignments: [{ id: 'config-object', name: 'config', type: 'object', value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", slack_review_channel: "#workflow-builder", public_n8n_base_url: "https://n8n.tradecredit.agency" } }}') }] }
     }
   }
 });
@@ -311,7 +311,7 @@ const slackReview = node({
       operation: 'post',
       authentication: 'accessToken',
       select: 'channel',
-      channelId: { __rl: true, mode: 'name', value: '#codex-review' },
+      channelId: { __rl: true, mode: 'name', value: '#workflow-builder' },
       messageType: 'text',
       text: expr('{{ $json.slack_message }}'),
       otherOptions: { includeLinkToWorkflow: false, mrkdwn: true }
@@ -352,7 +352,7 @@ const config = node({
             id: 'config-object',
             name: 'config',
             type: 'object',
-            value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", github_repo_full_name: "choicedrum-crypto/agentic-buildout-starter", github_default_branch: "main", github_deploy_workflow_name: "Deploy After Merge", github_deploy_workflow_file: "deploy.yml", production_branch: "main", plane_api_base_url: "https://api.plane.so", plane_workspace_slug: "tcia", plane_project_id: "a0edb37d-263d-40c0-a34b-f77bbe9ba85d", plane_project_identifier: "TCIA", plane_done_state_id: "9e8cb223-ee5d-4d52-89fc-1c0ffa900e70", plane_done_state_name: "Done", plane_failed_state_id: "8ea8d880-15b2-4201-8fbc-358ba54e5b54", plane_failed_state_name: "Blocked", plane_comment_access: "INTERNAL", slack_deploy_channel: "#deployments", public_n8n_base_url: "https://n8n.tradecredit.agency", deployment_webhook_path: "github-deploy-result", deployment_webhook_url: "https://n8n.tradecredit.agency/webhook/github-deploy-result" } }}')
+            value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", github_repo_full_name: "choicedrum-crypto/agentic-buildout-starter", github_default_branch: "main", github_deploy_workflow_name: "Deploy After Merge", github_deploy_workflow_file: "deploy.yml", production_branch: "main", plane_api_base_url: "https://api.plane.so", plane_workspace_slug: "tcia", plane_project_id: "a0edb37d-263d-40c0-a34b-f77bbe9ba85d", plane_project_identifier: "TCIA", plane_done_state_id: "9e8cb223-ee5d-4d52-89fc-1c0ffa900e70", plane_done_state_name: "Done", plane_failed_state_id: "8ea8d880-15b2-4201-8fbc-358ba54e5b54", plane_failed_state_name: "Blocked", plane_comment_access: "INTERNAL", slack_deploy_channel: "#workflow-builder", public_n8n_base_url: "https://n8n.tradecredit.agency", deployment_webhook_path: "github-deploy-result", deployment_webhook_url: "https://n8n.tradecredit.agency/webhook/github-deploy-result" } }}')
           }
         ]
       }
@@ -443,7 +443,7 @@ const slackDeploy = node({
       operation: 'post',
       authentication: 'accessToken',
       select: 'channel',
-      channelId: { __rl: true, mode: 'name', value: '#deployments' },
+      channelId: { __rl: true, mode: 'name', value: '#workflow-builder' },
       messageType: 'text',
       text: expr('{{ $json.slack_message }}'),
       otherOptions: { includeLinkToWorkflow: false, mrkdwn: true }
