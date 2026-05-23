@@ -417,6 +417,7 @@ const updatePlane = node({
   version: 4.4,
   config: {
     name: 'Update Plane Status',
+    alwaysOutputData: true,
     credentials: { httpHeaderAuth: newCredential('${headerCredential}') },
     parameters: {
       method: 'PATCH',
@@ -429,6 +430,24 @@ const updatePlane = node({
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ { state: $json.plane_state_id } }}')
+    }
+  }
+});
+
+const restoreDeployMessage = node({
+  type: 'n8n-nodes-base.set',
+  version: 3.4,
+  config: {
+    name: 'Restore Deployment Slack Message',
+    parameters: {
+      mode: 'manual',
+      includeOtherFields: true,
+      assignments: {
+        assignments: [
+          { id: 'slack-message', name: 'slack_message', type: 'string', value: expr('{{ $("Extract Deployment Context").item.json.slack_message }}') },
+          { id: 'deployment-status', name: 'deployment_status', type: 'string', value: expr('{{ $("Extract Deployment Context").item.json.deployment_status }}') }
+        ]
+      }
     }
   }
 });
@@ -460,7 +479,7 @@ export default workflow('deployment-result-plane-slack', 'Deployment Result to P
   .to(extract)
   .to(isCompletedDeploy
     .onTrue(hasPlane
-      .onTrue(updatePlane.to(slackDeploy).to(respondSynced))
+      .onTrue(updatePlane.to(restoreDeployMessage).to(slackDeploy).to(respondSynced))
       .onFalse(slackDeploy.to(respondSynced)))
     .onFalse(respondIgnored));
 `;
