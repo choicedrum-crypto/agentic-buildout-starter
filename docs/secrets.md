@@ -34,6 +34,7 @@ Do not use enterprise/global n8n variables for this starter. Each workflow must 
 - `plane_workspace_slug`
 - `plane_project_id`
 - `plane_ready_state_name`, default `Ready`
+- `plane_review_state_name`, default `Review`
 - `plane_done_state_name`, default `Done`
 - `plane_failed_state_name`, default `Blocked`
 - `slack_review_channel`

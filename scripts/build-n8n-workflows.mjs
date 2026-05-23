@@ -326,7 +326,7 @@ export default workflow('plane-ready-github-issue', 'Plane Ready to GitHub Issue
 `;
 
 const prReviewWorkflow = `
-import { workflow, node, trigger, ifElse, expr } from '@n8n/workflow-sdk';
+import { workflow, node, trigger, newCredential, ifElse, expr } from '@n8n/workflow-sdk';
 
 const githubWebhook = trigger({
   type: 'n8n-nodes-base.webhook',
@@ -342,7 +342,7 @@ const config = node({
     parameters: {
       mode: 'manual',
       includeOtherFields: true,
-      assignments: { assignments: [{ id: 'config-object', name: 'config', type: 'object', value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", slack_review_channel: "#workflow-builder", github_signature_validation: "pending-secret-credential", public_n8n_base_url: "https://n8n.tradecredit.agency" } }}') }] }
+      assignments: { assignments: [{ id: 'config-object', name: 'config', type: 'object', value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", slack_review_channel: "#workflow-builder", github_signature_validation: "pending-secret-credential", plane_api_base_url: "https://api.plane.so", plane_workspace_slug: "tcia", plane_project_id: "a0edb37d-263d-40c0-a34b-f77bbe9ba85d", plane_review_state_id: "0948b422-5c0c-4c37-b34d-0a358e156a6f", plane_review_state_name: "Review", public_n8n_base_url: "https://n8n.tradecredit.agency" } }}') }] }
     }
   }
 });
@@ -362,10 +362,11 @@ const action = body.action || '';
 const pr = body.pull_request || {};
 const issueUrl = (pr.body || '').match(/https:\\\\/\\\\/github\\\\.com\\\\/[^\\\\s)]+\\\\/issues\\\\/\\\\d+/)?.[0] || '';
 const planeUrl = (pr.body || '').match(/https?:\\\\/\\\\/[^\\\\s)]+plane[^\\\\s)]*/i)?.[0] || '';
+const planeIssueId = (pr.body || '').match(/plane_issue_id:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] || '';
 const reviewable = ['opened', 'synchronize', 'reopened', 'ready_for_review'].includes(action);
 const message = [
   'Build ready for review',
-  'Plane: ' + (planeUrl || 'Not linked'),
+  'Plane: ' + (planeUrl || planeIssueId || 'Not linked'),
   'GitHub Issue: ' + (issueUrl || 'Not linked'),
   'PR / Merge Link: ' + (pr.html_url || 'Not provided'),
   'Checks: pending or see GitHub PR',
@@ -373,7 +374,7 @@ const message = [
   'Risks: See PR body',
   'Next step: review and merge in GitHub.'
 ].join('\\\\n');
-return { json: { ...$json, config, action, reviewable, pr_title: pr.title, pr_url: pr.html_url, pr_merge_link: pr.html_url, issue_url: issueUrl, plane_url: planeUrl, slack_message: message } };
+return { json: { ...$json, config, action, reviewable, pr_title: pr.title, pr_url: pr.html_url, pr_merge_link: pr.html_url, issue_url: issueUrl, plane_url: planeUrl, plane_issue_id: planeIssueId, plane_state_id: config.plane_review_state_id, slack_message: message } };
 \`
     }
   }
@@ -385,6 +386,79 @@ const shouldNotify = ifElse({
     name: 'Reviewable PR Action?',
     parameters: {
       conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ String($json.reviewable) }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'true' }], combinator: 'and' }
+    }
+  }
+});
+
+const hasPlane = ifElse({
+  version: 2.3,
+  config: {
+    name: 'Plane Task Linked?',
+    parameters: {
+      conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ $json.plane_issue_id }}'), operator: { type: 'string', operation: 'notEmpty' } }], combinator: 'and' }
+    }
+  }
+});
+
+const updatePlaneReview = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Move Plane to Review',
+    alwaysOutputData: true,
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    parameters: {
+      method: 'PATCH',
+      url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.config.plane_project_id + "/work-items/" + $json.plane_issue_id + "/" }}'),
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] },
+      sendBody: true,
+      contentType: 'json',
+      specifyBody: 'json',
+      jsonBody: expr('{{ { state: $json.plane_state_id } }}')
+    }
+  }
+});
+
+const commentPlaneReview = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Comment on Plane with PR Review Link',
+    alwaysOutputData: true,
+    continueOnFail: true,
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    parameters: {
+      method: 'POST',
+      url: expr('{{ $("Extract PR Review Context").item.json.config.plane_api_base_url + "/api/v1/workspaces/" + $("Extract PR Review Context").item.json.config.plane_workspace_slug + "/projects/" + $("Extract PR Review Context").item.json.config.plane_project_id + "/work-items/" + $("Extract PR Review Context").item.json.plane_issue_id + "/comments/" }}'),
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] },
+      sendBody: true,
+      contentType: 'json',
+      specifyBody: 'json',
+      jsonBody: expr('{{ { comment_html: "<p>PR ready for review: " + $("Extract PR Review Context").item.json.pr_url + "</p>", comment_json: {}, access: "INTERNAL", external_source: "github_pr", external_id: String($("Extract PR Review Context").item.json.pr_url || "") } }}')
+    }
+  }
+});
+
+const restoreReviewMessage = node({
+  type: 'n8n-nodes-base.set',
+  version: 3.4,
+  config: {
+    name: 'Restore Review Slack Message',
+    parameters: {
+      mode: 'manual',
+      includeOtherFields: true,
+      assignments: {
+        assignments: [
+          { id: 'slack-message', name: 'slack_message', type: 'string', value: expr('{{ $("Extract PR Review Context").item.json.slack_message }}') },
+          { id: 'pr-url', name: 'pr_url', type: 'string', value: expr('{{ $("Extract PR Review Context").item.json.pr_url }}') }
+        ]
+      }
     }
   }
 });
@@ -414,7 +488,11 @@ export default workflow('github-pr-slack-review', 'GitHub PR to Slack Review')
   .add(githubWebhook)
   .to(config)
   .to(extract)
-  .to(shouldNotify.onTrue(slackReview.to(respondNotified)).onFalse(respondIgnored));
+  .to(shouldNotify
+    .onTrue(hasPlane
+      .onTrue(updatePlaneReview.to(commentPlaneReview).to(restoreReviewMessage).to(slackReview).to(respondNotified))
+      .onFalse(slackReview.to(respondNotified)))
+    .onFalse(respondIgnored));
 `;
 
 const deploymentWorkflow = `

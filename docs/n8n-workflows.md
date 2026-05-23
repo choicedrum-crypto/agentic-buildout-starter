@@ -40,9 +40,10 @@ Trigger:
 Core logic:
 1. Extract PR title, URL, body, branch, commit SHA, and linked issue.
 2. Parse Plane URL or Plane issue ID from the PR body or linked issue body.
-3. Fetch current GitHub check status for the PR head SHA.
-4. Optionally comment on Plane with the PR URL.
-5. Send Slack a review message with the PR merge link.
+3. Move linked Plane tasks to `Review` when `plane_issue_id` is present.
+4. Fetch current GitHub check status for the PR head SHA.
+5. Comment on Plane with the PR URL when Plane context is resolved.
+6. Send Slack a review message with the PR merge link.
 
 Slack message must include:
 - Plane link, if available.
