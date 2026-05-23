@@ -33,6 +33,20 @@
       "name": "Receive GitHub PR event"
     },
     {
+      "id": "config",
+      "type": "Set",
+      "name": "CONFIG",
+      "notes": "First workflow node after the trigger. Store all shared constants here instead of n8n global variables.",
+      "values": {
+        "github_owner": "GitHub repository owner or organization",
+        "github_repo": "GitHub repository name",
+        "plane_workspace_slug": "Plane workspace slug",
+        "plane_project_id": "Plane project ID",
+        "slack_review_channel": "Slack channel for PR review messages",
+        "public_n8n_base_url": "https://n8n.tradecredit.agency"
+      }
+    },
+    {
       "id": "verify_github_signature",
       "type": "Code or IF",
       "name": "Verify GitHub webhook signature",

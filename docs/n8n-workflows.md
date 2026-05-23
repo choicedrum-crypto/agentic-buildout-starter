@@ -2,6 +2,8 @@
 
 The files in `n8n-workflows/` are credential-free JSON specs for building or importing workflows in Hostinger n8n. They describe the nodes, templates, credentials, and failure handling required for the core GitHub-first flow.
 
+Each workflow must include a `CONFIG` Set node immediately after the webhook trigger. Use that node for shared constants such as GitHub owner/repo, Plane workspace/project IDs, state names, Slack channels, and the public n8n base URL. Do not use enterprise/global n8n variables for this starter.
+
 ## Workflow A: Plane Ready to GitHub Issue
 
 Spec: `n8n-workflows/plane-ready-to-github-issue.spec.json`
@@ -12,12 +14,13 @@ Trigger:
 
 Core logic:
 1. Normalize the Plane payload into issue ID, title, description, status, and URL.
-2. Continue only when the state equals `Ready`.
-3. Check for an existing GitHub issue URL on the Plane task.
-4. Search GitHub for the Plane issue ID to avoid duplicate issues.
-5. Create a GitHub issue with a Codex-ready body.
-6. Add the GitHub issue link back to Plane as a comment or custom field.
-7. Optionally notify Slack that work is queued.
+2. Load shared constants from the `CONFIG` Set node.
+3. Continue only when the state equals `CONFIG.plane_ready_state_name`.
+4. Check for an existing GitHub issue URL on the Plane task.
+5. Search GitHub for the Plane issue ID to avoid duplicate issues.
+6. Create a GitHub issue with a Codex-ready body.
+7. Add the GitHub issue link back to Plane as a comment or custom field.
+8. Optionally notify Slack that work is queued.
 
 The GitHub issue body must include:
 - Plane task URL and ID.

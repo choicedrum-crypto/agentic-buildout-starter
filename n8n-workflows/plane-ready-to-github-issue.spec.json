@@ -18,13 +18,6 @@
     "GitHub API credential in n8n",
     "Optional Slack credential in n8n"
   ],
-  "environment": {
-    "GITHUB_OWNER": "GitHub repository owner or organization",
-    "GITHUB_REPO": "GitHub repository name",
-    "PLANE_WORKSPACE_SLUG": "Plane workspace slug",
-    "PLANE_READY_STATE_NAME": "Ready",
-    "SLACK_QUEUE_CHANNEL": "Optional Slack channel for queued work"
-  },
   "nodes": [
     {
       "id": "plane_webhook",
@@ -33,10 +26,26 @@
       "notes": "Receives Plane issue update events from the cloud Plane webhook."
     },
     {
+      "id": "config",
+      "type": "Set",
+      "name": "CONFIG",
+      "notes": "First workflow node after the trigger. Store all shared constants here instead of n8n global variables.",
+      "values": {
+        "github_owner": "GitHub repository owner or organization",
+        "github_repo": "GitHub repository name",
+        "plane_workspace_slug": "Plane workspace slug",
+        "plane_project_id": "Plane project ID",
+        "plane_ready_state_name": "Ready",
+        "plane_github_issue_field_name": "GitHub Issue",
+        "slack_queue_channel": "Optional Slack channel for queued work",
+        "public_n8n_base_url": "https://n8n.tradecredit.agency"
+      }
+    },
+    {
       "id": "verify_plane_webhook",
       "type": "IF",
       "name": "Verify webhook secret",
-      "condition": "Header secret matches n8n credential or static workflow variable.",
+      "condition": "Header secret matches n8n credential value.",
       "on_false": "Respond 401 and stop."
     },
     {
@@ -57,7 +66,7 @@
       "id": "ready_filter",
       "type": "IF",
       "name": "State is Ready",
-      "condition": "plane_state equals PLANE_READY_STATE_NAME",
+      "condition": "plane_state equals CONFIG.plane_ready_state_name",
       "on_false": "Respond 204 with no action."
     },
     {

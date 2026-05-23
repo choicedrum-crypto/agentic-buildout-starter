@@ -25,8 +25,10 @@ The deployment workflow currently contains a placeholder deploy step. Replace on
 
 1. Create n8n credentials listed in `docs/secrets.md`.
 2. Build workflows from the JSON specs in `n8n-workflows/`.
-3. Store webhook secrets in n8n credentials or protected variables.
-4. Activate each workflow after testing with sample payloads.
+3. Add a `CONFIG` Set node immediately after each webhook trigger.
+4. Put shared constants and references in the workflow's `CONFIG` Set node, not enterprise/global variables.
+5. Store webhook secrets in n8n credentials.
+6. Activate each workflow after testing with sample payloads.
 
 Suggested webhook paths:
 
