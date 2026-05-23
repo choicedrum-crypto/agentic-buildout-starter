@@ -1,0 +1,47 @@
+# Automation Runbook
+
+Use this when operating the GitHub-first Plane -> n8n -> GitHub -> Slack -> deploy flow.
+
+## Start a Plane-backed task
+
+1. Create or choose a Plane work item in project `TCIA`.
+2. Move it to `Ready`.
+3. Confirm n8n creates exactly one GitHub issue.
+4. Build from the GitHub issue on a feature branch.
+5. Open a PR that includes:
+
+```text
+plane_issue_id: <Plane work item UUID>
+plane_url: <Plane task URL>
+```
+
+## Review and merge
+
+1. Confirm PR Checks pass.
+2. Confirm Slack receives the PR review message.
+3. Merge the PR in GitHub.
+4. Confirm `Deploy After Merge` runs from `main`.
+5. Confirm Slack receives the deploy result.
+6. Confirm Plane moves to `Done`.
+7. Add a deployment comment manually until the n8n Plane comment node can be bound to the `Plane Main` credential.
+
+## Recover from duplicates
+
+1. Keep the oldest valid GitHub issue created for the Plane task.
+2. Close duplicate GitHub issues as `not planned`.
+3. Leave the Plane comment that points to the canonical GitHub issue.
+4. Re-run the Plane Ready event only after confirming the duplicate guard returns the existing link.
+
+## Recover from failed deploy
+
+1. Open the GitHub Actions run from the Slack deployment message.
+2. Fix the cause in a new branch and PR.
+3. Merge only after PR Checks pass.
+4. Confirm n8n moves Plane from `Blocked` to `Done` after the successful deploy.
+
+## Logs to check
+
+- Plane work item activity and comments.
+- n8n execution history for the three production workflows.
+- GitHub PR checks and `Deploy After Merge` runs.
+- Slack `#workflow-builder` messages.

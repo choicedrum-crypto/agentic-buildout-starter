@@ -54,7 +54,8 @@ const planeWebhook = trigger({
     parameters: {
       httpMethod: 'POST',
       path: 'plane-ready',
-      responseMode: 'responseNode'
+      responseMode: 'responseNode',
+      options: { rawBody: true }
     }
   }
 });
@@ -69,7 +70,7 @@ const config = node({
       includeOtherFields: true,
       assignments: {
         assignments: [
-          { id: 'config-object', name: 'config', type: 'object', value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", plane_api_base_url: "https://api.plane.so", plane_workspace_slug: "tcia", plane_project_id: "a0edb37d-263d-40c0-a34b-f77bbe9ba85d", plane_project_identifier: "TCIA", plane_ready_state_id: "372009ad-e7bc-4639-9390-5540a123e435", plane_ready_state_name: "Ready", public_n8n_base_url: "https://n8n.tradecredit.agency" } }}') }
+          { id: 'config-object', name: 'config', type: 'object', value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", plane_api_base_url: "https://api.plane.so", plane_workspace_slug: "tcia", plane_project_id: "a0edb37d-263d-40c0-a34b-f77bbe9ba85d", plane_project_identifier: "TCIA", plane_ready_state_id: "372009ad-e7bc-4639-9390-5540a123e435", plane_ready_state_name: "Ready", plane_signature_validation: "pending-secret-credential", public_n8n_base_url: "https://n8n.tradecredit.agency" } }}') }
         ]
       }
     }
@@ -282,7 +283,7 @@ import { workflow, node, trigger, ifElse, expr } from '@n8n/workflow-sdk';
 const githubWebhook = trigger({
   type: 'n8n-nodes-base.webhook',
   version: 2.1,
-  config: { name: 'GitHub PR Webhook', parameters: { httpMethod: 'POST', path: 'github-pr-review', authentication: 'none', responseMode: 'responseNode' } }
+  config: { name: 'GitHub PR Webhook', parameters: { httpMethod: 'POST', path: 'github-pr-review', authentication: 'none', responseMode: 'responseNode', options: { rawBody: true } } }
 });
 
 const config = node({
@@ -293,7 +294,7 @@ const config = node({
     parameters: {
       mode: 'manual',
       includeOtherFields: true,
-      assignments: { assignments: [{ id: 'config-object', name: 'config', type: 'object', value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", slack_review_channel: "#workflow-builder", public_n8n_base_url: "https://n8n.tradecredit.agency" } }}') }] }
+      assignments: { assignments: [{ id: 'config-object', name: 'config', type: 'object', value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", slack_review_channel: "#workflow-builder", github_signature_validation: "pending-secret-credential", public_n8n_base_url: "https://n8n.tradecredit.agency" } }}') }] }
     }
   }
 });
@@ -374,7 +375,7 @@ import { workflow, node, trigger, newCredential, ifElse, expr } from '@n8n/workf
 const githubWorkflowWebhook = trigger({
   type: 'n8n-nodes-base.webhook',
   version: 2.1,
-  config: { name: 'GitHub Deployment Result Webhook', parameters: { httpMethod: 'POST', path: 'github-deploy-result', authentication: 'none', responseMode: 'responseNode' } }
+  config: { name: 'GitHub Deployment Result Webhook', parameters: { httpMethod: 'POST', path: 'github-deploy-result', authentication: 'none', responseMode: 'responseNode', options: { rawBody: true } } }
 });
 
 const config = node({
@@ -391,7 +392,7 @@ const config = node({
             id: 'config-object',
             name: 'config',
             type: 'object',
-            value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", github_repo_full_name: "choicedrum-crypto/agentic-buildout-starter", github_default_branch: "main", github_deploy_workflow_name: "Deploy After Merge", github_deploy_workflow_file: "deploy.yml", production_branch: "main", plane_api_base_url: "https://api.plane.so", plane_workspace_slug: "tcia", plane_project_id: "a0edb37d-263d-40c0-a34b-f77bbe9ba85d", plane_project_identifier: "TCIA", plane_done_state_id: "9e8cb223-ee5d-4d52-89fc-1c0ffa900e70", plane_done_state_name: "Done", plane_failed_state_id: "8ea8d880-15b2-4201-8fbc-358ba54e5b54", plane_failed_state_name: "Blocked", plane_comment_access: "INTERNAL", slack_deploy_channel: "#workflow-builder", public_n8n_base_url: "https://n8n.tradecredit.agency", deployment_webhook_path: "github-deploy-result", deployment_webhook_url: "https://n8n.tradecredit.agency/webhook/github-deploy-result" } }}')
+            value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", github_repo_full_name: "choicedrum-crypto/agentic-buildout-starter", github_default_branch: "main", github_deploy_workflow_name: "Deploy After Merge", github_deploy_workflow_file: "deploy.yml", production_branch: "main", github_signature_validation: "pending-secret-credential", plane_api_base_url: "https://api.plane.so", plane_workspace_slug: "tcia", plane_project_id: "a0edb37d-263d-40c0-a34b-f77bbe9ba85d", plane_project_identifier: "TCIA", plane_done_state_id: "9e8cb223-ee5d-4d52-89fc-1c0ffa900e70", plane_done_state_name: "Done", plane_failed_state_id: "8ea8d880-15b2-4201-8fbc-358ba54e5b54", plane_failed_state_name: "Blocked", plane_comment_access: "INTERNAL", slack_deploy_channel: "#workflow-builder", public_n8n_base_url: "https://n8n.tradecredit.agency", deployment_webhook_path: "github-deploy-result", deployment_webhook_url: "https://n8n.tradecredit.agency/webhook/github-deploy-result" } }}')
           }
         ]
       }
@@ -548,8 +549,8 @@ const restoreDeployMessage = node({
       includeOtherFields: true,
       assignments: {
         assignments: [
-          { id: 'slack-message', name: 'slack_message', type: 'string', value: expr('{{ $("Extract Deployment Context").item.json.slack_message }}') },
-          { id: 'deployment-status', name: 'deployment_status', type: 'string', value: expr('{{ $("Extract Deployment Context").item.json.deployment_status }}') }
+          { id: 'slack-message', name: 'slack_message', type: 'string', value: expr('{{ $("Resolve Plane Context").item.json.slack_message }}') },
+          { id: 'deployment-status', name: 'deployment_status', type: 'string', value: expr('{{ $("Resolve Plane Context").item.json.deployment_status }}') }
         ]
       }
     }

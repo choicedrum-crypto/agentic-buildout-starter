@@ -18,9 +18,9 @@ Optional, depending on how you later replace the deploy placeholder:
 Create these in Hostinger n8n credentials:
 
 - GitHub API token or GitHub App credential with issue, pull request, and check read permissions plus issue write permissions.
-- GitHub webhook secret for validating `X-Hub-Signature-256`.
+- GitHub webhook secret for validating `X-Hub-Signature-256`. The current builder marks this as `pending-secret-credential` until a credential-access pattern is added in n8n.
 - Plane API token with issue read/write permissions.
-- Plane webhook secret or shared secret header value.
+- Plane webhook secret for validating `X-Plane-Signature`. The current builder captures raw webhook bodies but leaves validation marked `pending-secret-credential` until the secret can be read from an n8n credential.
 - Slack bot token or Slack incoming webhook for review and status messages.
 
 ## n8n Workflow CONFIG Nodes
