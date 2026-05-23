@@ -36,4 +36,4 @@ OpenClaw can remain local for separate workflows, but it is not required for thi
 4. Configure Plane, GitHub, and GitHub Actions webhooks to point at Hostinger n8n.
 5. Open this repo in Codex and run the prompt in `codex-start-prompt.md`.
 
-See `docs/setup.md` for the full setup path and `docs/testing-checklist.md` for validation.
+See `docs/setup.md` for the full setup path, `docs/runbook.md` for operating steps, and `docs/testing-checklist.md` for validation.
