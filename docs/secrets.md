@@ -23,19 +23,20 @@ Create these in Hostinger n8n credentials:
 - Plane webhook secret or shared secret header value.
 - Slack bot token or Slack incoming webhook for review and status messages.
 
-## n8n Variables
+## n8n Workflow CONFIG Nodes
 
-Configure these as n8n variables or workflow-level constants:
+Do not use enterprise/global n8n variables for this starter. Each workflow must have a `CONFIG` Set node immediately after the trigger. Put shared constants and references there:
 
-- `GITHUB_OWNER`
-- `GITHUB_REPO`
-- `PLANE_WORKSPACE_SLUG`
-- `PLANE_PROJECT_ID`
-- `PLANE_READY_STATE_NAME`, default `Ready`
-- `PLANE_DONE_STATE_NAME`, default `Done`
-- `PLANE_FAILED_STATE_NAME`, default `Blocked`
-- `SLACK_REVIEW_CHANNEL`
-- `SLACK_DEPLOY_CHANNEL`
+- `github_owner`
+- `github_repo`
+- `plane_workspace_slug`
+- `plane_project_id`
+- `plane_ready_state_name`, default `Ready`
+- `plane_done_state_name`, default `Done`
+- `plane_failed_state_name`, default `Blocked`
+- `slack_review_channel`
+- `slack_deploy_channel`
+- `public_n8n_base_url`, default `https://n8n.tradecredit.agency`
 
 ## Secret Handling Rules
 
@@ -44,3 +45,4 @@ Configure these as n8n variables or workflow-level constants:
 - Codex does not receive production deployment credentials.
 - Slack messages should include links and statuses, never tokens or signed webhook payloads.
 - Exported n8n workflows should be credential-free before committing.
+- Shared constants belong in each workflow's `CONFIG` Set node, not in enterprise/global variables.

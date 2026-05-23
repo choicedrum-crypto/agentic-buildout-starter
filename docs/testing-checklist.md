@@ -6,6 +6,8 @@ Use this checklist before trusting the automation with real work.
 
 - Run `bash ./scripts/validate-workflows.sh`.
 - Confirm every file in `n8n-workflows/` is valid JSON.
+- Confirm each n8n workflow has a `CONFIG` Set node immediately after the webhook trigger.
+- Confirm no workflow depends on enterprise/global n8n variables.
 - Confirm `.github/workflows/pr-checks.yml` appears in a PR.
 - Confirm `.github/workflows/deploy-after-merge.yml` runs only on `main` pushes or manual dispatch.
 
