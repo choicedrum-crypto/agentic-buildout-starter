@@ -40,7 +40,7 @@ async function tool(name, args = {}) {
   return mcp('tools/call', { name, arguments: args });
 }
 
-const headerCredential = 'Header Auth account';
+const planeApiCredential = 'Plane Main';
 const githubCredential = 'GitHub account';
 
 const planeReadyWorkflow = `
@@ -51,11 +51,9 @@ const planeWebhook = trigger({
   version: 2.1,
   config: {
     name: 'Plane Ready Webhook',
-    credentials: { httpHeaderAuth: newCredential('${headerCredential}') },
     parameters: {
       httpMethod: 'POST',
       path: 'plane-ready',
-      authentication: 'headerAuth',
       responseMode: 'responseNode'
     }
   }
@@ -189,7 +187,7 @@ const commentPlane = node({
   version: 4.4,
   config: {
     name: 'Comment on Plane with GitHub Issue',
-    credentials: { httpHeaderAuth: newCredential('${headerCredential}') },
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
     parameters: {
       method: 'POST',
       url: expr('{{ $("Normalize Plane Payload").item.json.config.plane_api_base_url + "/api/v1/workspaces/" + $("Normalize Plane Payload").item.json.config.plane_workspace_slug + "/projects/" + $("Normalize Plane Payload").item.json.config.plane_project_id + "/work-items/" + $("Normalize Plane Payload").item.json.plane_issue_id + "/comments/" }}'),
@@ -422,7 +420,7 @@ const updatePlane = node({
   config: {
     name: 'Update Plane Status',
     alwaysOutputData: true,
-    credentials: { httpHeaderAuth: newCredential('${headerCredential}') },
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
     parameters: {
       method: 'PATCH',
       url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.config.plane_project_id + "/work-items/" + $json.plane_issue_id + "/" }}'),
