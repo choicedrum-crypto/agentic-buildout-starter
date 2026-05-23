@@ -9,13 +9,14 @@ Use this checklist before trusting the automation with real work.
 - Confirm each n8n workflow has a `CONFIG` Set node immediately after the webhook trigger.
 - Confirm no workflow depends on enterprise/global n8n variables.
 - Confirm `.github/workflows/pr-checks.yml` appears in a PR.
-- Confirm `.github/workflows/deploy-after-merge.yml` runs only on `main` pushes or manual dispatch.
+- Confirm `.github/workflows/deploy.yml` runs only on `main` pushes or manual dispatch.
 
 ## Plane to GitHub Issue
 
 - Send a sample Plane payload where state is not `Ready`; expect no GitHub issue.
 - Send a sample Plane payload where state is `Ready`; expect one GitHub issue.
 - Send the same Ready payload again; expect no duplicate GitHub issue.
+- Confirm repeated Plane Ready events return the existing GitHub issue link instead of creating a second issue.
 - Confirm Plane receives a GitHub issue link comment or custom field update.
 - Confirm a failed GitHub API call leaves Plane in `Ready` and creates a visible failure note where possible.
 
