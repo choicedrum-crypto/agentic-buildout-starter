@@ -360,9 +360,10 @@ const config = $json.config || {};
 const body = $json.body || $json;
 const action = body.action || '';
 const pr = body.pull_request || {};
-const issueUrl = (pr.body || '').match(/https:\\\\/\\\\/github\\\\.com\\\\/[^\\\\s)]+\\\\/issues\\\\/\\\\d+/)?.[0] || '';
-const planeUrl = (pr.body || '').match(/https?:\\\\/\\\\/[^\\\\s)]+plane[^\\\\s)]*/i)?.[0] || '';
-const planeIssueId = (pr.body || '').match(/plane_issue_id:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] || '';
+const metadataText = [pr.body || '', pr.title || '', JSON.stringify(body)].join('\\\\n');
+const issueUrl = metadataText.match(/https:\\\\/\\\\/github\\\\.com\\\\/[^\\\\s)]+\\\\/issues\\\\/\\\\d+/)?.[0] || '';
+const planeUrl = metadataText.match(/https?:\\\\/\\\\/[^\\\\s)"]*plane[^\\\\s)"]*/i)?.[0] || '';
+const planeIssueId = metadataText.match(/plane_issue_id:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] || '';
 const reviewable = ['opened', 'synchronize', 'reopened', 'ready_for_review'].includes(action);
 const message = [
   'Build ready for review',
@@ -406,6 +407,7 @@ const updatePlaneReview = node({
   config: {
     name: 'Move Plane to Review',
     alwaysOutputData: true,
+    continueOnFail: true,
     credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
     parameters: {
       method: 'PATCH',
@@ -481,7 +483,7 @@ const slackReview = node({
   }
 });
 
-const respondNotified = node({ type: 'n8n-nodes-base.respondToWebhook', version: 1.5, config: { name: 'Respond Notified', parameters: { respondWith: 'json', responseBody: expr('{{ { ok: true, action: "slack_review_sent", pr_url: $json.pr_url } }}'), options: { responseCode: 200 } } } });
+const respondNotified = node({ type: 'n8n-nodes-base.respondToWebhook', version: 1.5, config: { name: 'Respond Notified', parameters: { respondWith: 'json', responseBody: expr('{{ { ok: true, action: "slack_review_sent", pr_url: $json.pr_url, plane_issue_id: $("Extract PR Review Context").item.json.plane_issue_id || "", plane_review_queued: Boolean($("Extract PR Review Context").item.json.plane_issue_id) } }}'), options: { responseCode: 200 } } } });
 const respondIgnored = node({ type: 'n8n-nodes-base.respondToWebhook', version: 1.5, config: { name: 'Respond Ignored', parameters: { respondWith: 'json', responseBody: expr('{{ { ok: true, action: "ignored_pr_action", github_action: $json.action } }}'), options: { responseCode: 200 } } } });
 
 export default workflow('github-pr-slack-review', 'GitHub PR to Slack Review')
