@@ -38,6 +38,8 @@ Use this checklist before trusting the automation with real work.
 - Confirm Slack receives deployment success or failure.
 - Confirm n8n moves Plane to `Done` on success.
 - Confirm n8n moves Plane to `Blocked` or `Failed` on failure.
+- Confirm Plane receives a deployment comment with the GitHub Actions run URL, commit SHA, status, and PR URL.
+- If the deployment comment is missing, confirm the `Comment on Plane with Deployment Result` node is manually bound to the `Plane Main` HTTP Header Auth credential in n8n.
 
 ## Safety
 

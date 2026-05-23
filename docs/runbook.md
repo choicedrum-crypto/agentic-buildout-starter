@@ -23,7 +23,9 @@ plane_url: <Plane task URL>
 4. Confirm `Deploy After Merge` runs from `main`.
 5. Confirm Slack receives the deploy result.
 6. Confirm Plane moves to `Done`.
-7. Add a deployment comment manually until the n8n Plane comment node can be bound to the `Plane Main` credential.
+7. Confirm Plane receives a deployment comment with the GitHub Actions run URL, commit SHA, and PR URL.
+
+If the deployment comment is missing but Slack and the Plane state update succeed, open the deployment workflow in n8n and confirm the `Comment on Plane with Deployment Result` node is bound to the existing `Plane Main` HTTP Header Auth credential. The node is intentionally placed after `Update Plane Status`, so the core status update and Slack notification remain the primary signal while credential binding is repaired.
 
 ## Recover from duplicates
 

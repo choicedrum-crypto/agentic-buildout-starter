@@ -23,6 +23,8 @@ Create these in Hostinger n8n credentials:
 - Plane webhook secret for validating `X-Plane-Signature`. The current builder captures raw webhook bodies but leaves validation marked `pending-secret-credential` until the secret can be read from an n8n credential.
 - Slack bot token or Slack incoming webhook for review and status messages.
 
+After publishing workflow changes that add new Plane HTTP Request nodes, open each new node in n8n and confirm it is bound to the existing `Plane Main` HTTP Header Auth credential. The credential should send the Plane API key as the configured header value; do not paste the key into workflow node headers or `CONFIG`.
+
 ## n8n Workflow CONFIG Nodes
 
 Do not use enterprise/global n8n variables for this starter. Each workflow must have a `CONFIG` Set node immediately after the trigger. Put shared constants and references there:
