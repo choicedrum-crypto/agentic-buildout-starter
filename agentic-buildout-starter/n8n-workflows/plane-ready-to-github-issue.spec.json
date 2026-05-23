@@ -1,0 +1,21 @@
+{
+  "name": "Plane Ready to GitHub Issue - SPEC",
+  "description": "Spec placeholder for n8n workflow. Codex should convert this into importable n8n JSON or node-by-node instructions.",
+  "nodes_required": [
+    "Webhook: receive Plane work item update",
+    "IF: status equals Ready",
+    "HTTP Request or GitHub Node: search/create GitHub issue",
+    "HTTP Request: update/comment on Plane issue",
+    "Slack: optional queue notification"
+  ],
+  "required_inputs": [
+    "Plane issue id",
+    "Plane issue title",
+    "Plane issue description",
+    "Plane status",
+    "Plane issue url",
+    "GitHub repo owner",
+    "GitHub repo name"
+  ],
+  "github_issue_template": "See docs/n8n-workflows.md"
+}

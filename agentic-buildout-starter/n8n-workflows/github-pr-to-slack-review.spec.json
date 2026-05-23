@@ -1,0 +1,11 @@
+{
+  "name": "GitHub PR to Slack Review - SPEC",
+  "description": "Spec placeholder for n8n workflow. Codex should convert this into importable n8n JSON or node-by-node instructions.",
+  "nodes_required": [
+    "Webhook: receive GitHub pull_request event",
+    "HTTP Request or GitHub Node: fetch PR details",
+    "HTTP Request or GitHub Node: fetch check status",
+    "Slack: send review message with PR/merge link"
+  ],
+  "slack_message_template": "Build ready for review\n\nPlane: {{plane_url}}\nGitHub Issue: {{issue_url}}\nPR / Merge Link: {{pr_url}}\nChecks: {{check_status}}\nSummary: {{summary}}\n\nNext step: review and merge in GitHub."
+}
