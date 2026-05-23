@@ -1,0 +1,43 @@
+name: Website Checker
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: Website URL to check
+        required: false
+        default: http://www.tciallc.com/
+      timeout_ms:
+        description: Request timeout in milliseconds
+        required: false
+        default: "15000"
+  schedule:
+    - cron: "*/30 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: website-checker
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check website availability
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Check website
+        env:
+          WEBSITE_CHECK_URL: ${{ inputs.url || 'http://www.tciallc.com/' }}
+          WEBSITE_CHECK_TIMEOUT_MS: ${{ inputs.timeout_ms || '15000' }}
+        run: node scripts/check-website.mjs
