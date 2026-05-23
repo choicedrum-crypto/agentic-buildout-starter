@@ -90,14 +90,18 @@ const normalize = node({
 const config = $json.config || {};
 const body = $json.body || $json;
 const issue = body.issue || body.work_item || body.workItem || body.data || body;
-const stateValue = issue.state?.name || issue.state_name || issue.status?.name || issue.status || body.state?.name || body.status?.name || '';
+const stateObject = issue.state || issue.status || body.state || body.status || {};
+const stateValue = stateObject.name || issue.state_name || issue.status_name || body.state_name || body.status_name || stateObject || '';
+const stateId = stateObject.id || stateObject.uuid || issue.state_id || issue.state || body.state_id || body.state || '';
 const planeIssueId = issue.id || issue.uuid || issue.issue_id || issue.work_item_id || body.issue_id || body.work_item_id || '';
 const planeIssueKey = issue.identifier || issue.sequence_id || issue.key || body.issue_key || '';
 const title = issue.name || issue.title || body.title || 'Plane task ready for Codex';
 const description = issue.description_html || issue.description_stripped || issue.description || body.description || '';
 const planeUrl = issue.url || issue.web_url || body.url || body.issue_url || '';
 const existing = issue.github_issue_url || issue.external_id || body.github_issue_url || '';
-const ready = String(stateValue).toLowerCase() === String(config.plane_ready_state_name || 'Ready').toLowerCase();
+const readyByName = String(stateValue).toLowerCase() === String(config.plane_ready_state_name || 'Ready').toLowerCase();
+const readyById = String(stateId) === String(config.plane_ready_state_id || '');
+const ready = readyByName || readyById;
 const issueBody = [
   '## Plane Task',
   '- Plane URL: ' + (planeUrl || 'Not provided'),
@@ -127,7 +131,7 @@ const issueBody = [
   'plane_issue_id: ' + planeIssueId,
   'plane_url: ' + planeUrl
 ].join('\\\\n');
-return { json: { ...$json, config, plane_issue_id: planeIssueId, plane_issue_key: planeIssueKey, plane_title: title, plane_description: description, plane_state: stateValue, plane_url: planeUrl, existing_github_issue_url: existing, ready, has_existing_github_issue: Boolean(existing), github_issue_title: '[Plane] ' + title, github_issue_body: issueBody } };
+return { json: { ...$json, config, plane_issue_id: planeIssueId, plane_issue_key: planeIssueKey, plane_title: title, plane_description: description, plane_state: stateValue, plane_state_id: stateId, plane_url: planeUrl, existing_github_issue_url: existing, ready, has_existing_github_issue: Boolean(existing), github_issue_title: '[Plane] ' + title, github_issue_body: issueBody } };
 \`
     }
   }
