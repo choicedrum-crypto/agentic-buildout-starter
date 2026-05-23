@@ -517,16 +517,17 @@ const planeIssueId =
   text.match(/Plane ID:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] ||
   '';
 const planeUrl = base.plane_url || text.match(/https?:\\\\/\\\\/[^\\\\s)"]*plane[^\\\\s)"]*/i)?.[0] || '';
+const prUrl = pr.html_url || (base.pr_number ? 'https://github.com/' + base.config.github_owner + '/' + base.config.github_repo + '/pull/' + base.pr_number : '');
 const message = [
   'Deployment ' + (base.success ? 'succeeded' : 'failed'),
   'Repo: ' + (base.repository || base.config.github_owner + '/' + base.config.github_repo),
   'Commit: ' + (base.head_sha || 'unknown'),
   'Run: ' + (base.run_url || 'not provided'),
-  'PR: ' + (pr.html_url || (base.pr_number ? 'https://github.com/' + base.config.github_owner + '/' + base.config.github_repo + '/pull/' + base.pr_number : 'not resolved from commit')),
+  'PR: ' + (prUrl || 'not resolved from commit'),
   'Plane: ' + (planeUrl || planeIssueId || 'not resolved'),
   'Plane status update: ' + (planeIssueId ? 'queued' : 'skipped, Plane task not resolved')
 ].join('\\\\n');
-return { json: { ...base, plane_issue_id: planeIssueId, plane_url: planeUrl, slack_message: message } };
+return { json: { ...base, plane_issue_id: planeIssueId, plane_url: planeUrl, pr_url: prUrl, slack_message: message } };
 \`
     }
   }
@@ -550,6 +551,29 @@ const updatePlane = node({
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ { state: $json.plane_state_id } }}')
+    }
+  }
+});
+
+const commentPlaneDeployment = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Comment on Plane with Deployment Result',
+    alwaysOutputData: true,
+    continueOnFail: true,
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    parameters: {
+      method: 'POST',
+      url: expr('{{ $("Resolve Plane Context").item.json.config.plane_api_base_url + "/api/v1/workspaces/" + $("Resolve Plane Context").item.json.config.plane_workspace_slug + "/projects/" + $("Resolve Plane Context").item.json.config.plane_project_id + "/work-items/" + $("Resolve Plane Context").item.json.plane_issue_id + "/comments/" }}'),
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] },
+      sendBody: true,
+      contentType: 'json',
+      specifyBody: 'json',
+      jsonBody: expr('{{ { comment_html: "<p>Deployment " + $("Resolve Plane Context").item.json.deployment_status + ".</p><ul><li>GitHub Actions run: " + ($("Resolve Plane Context").item.json.run_url || "not provided") + "</li><li>Commit: " + ($("Resolve Plane Context").item.json.head_sha || "unknown") + "</li><li>PR: " + ($("Resolve Plane Context").item.json.pr_url || "not resolved") + "</li></ul>", comment_json: {}, access: $("Resolve Plane Context").item.json.config.plane_comment_access || "INTERNAL", external_source: "github_actions", external_id: String($("Resolve Plane Context").item.json.head_sha || "") } }}')
     }
   }
 });
@@ -600,10 +624,10 @@ export default workflow('deployment-result-plane-slack', 'Deployment Result to P
   .to(isCompletedDeploy
     .onTrue(hasPrNumber
       .onTrue(fetchMergedPr.to(resolvePlaneContext).to(hasPlane
-        .onTrue(updatePlane.to(restoreDeployMessage).to(slackDeploy).to(respondSynced))
+        .onTrue(updatePlane.to(commentPlaneDeployment).to(restoreDeployMessage).to(slackDeploy).to(respondSynced))
         .onFalse(slackDeploy.to(respondSynced))))
       .onFalse(fetchPrsForCommit.to(resolvePlaneContext).to(hasPlane
-        .onTrue(updatePlane.to(restoreDeployMessage).to(slackDeploy).to(respondSynced))
+        .onTrue(updatePlane.to(commentPlaneDeployment).to(restoreDeployMessage).to(slackDeploy).to(respondSynced))
         .onFalse(slackDeploy.to(respondSynced)))))
     .onFalse(respondIgnored));
 `;
