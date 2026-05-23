@@ -758,6 +758,145 @@ export default workflow('github-pr-feedback-revision-queue', 'GitHub PR Feedback
     .onFalse(respondIgnored));
 `;
 
+const websiteCheckerWorkflow = `
+import { workflow, node, trigger, ifElse, expr } from '@n8n/workflow-sdk';
+
+const schedule = trigger({
+  type: 'n8n-nodes-base.scheduleTrigger',
+  version: 1.2,
+  config: {
+    name: 'Every 30 Minutes',
+    parameters: {
+      rule: {
+        interval: [
+          { field: 'minutes', minutesInterval: 30 }
+        ]
+      }
+    }
+  }
+});
+
+const config = node({
+  type: 'n8n-nodes-base.set',
+  version: 3.4,
+  config: {
+    name: 'CONFIG',
+    parameters: {
+      mode: 'manual',
+      includeOtherFields: true,
+      assignments: {
+        assignments: [
+          { id: 'config-object', name: 'config', type: 'object', value: expr('{{ { website_url: "http://www.tciallc.com/", timeout_ms: 15000, slack_alert_channel: "#workflow-builder" } }}') }
+        ]
+      }
+    }
+  }
+});
+
+const checkWebsite = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Check Website',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const config = $json.config || {};
+const url = config.website_url || 'http://www.tciallc.com/';
+const timeoutMs = Number(config.timeout_ms || 15000);
+const startedAt = Date.now();
+let result = {
+  website_url: url,
+  final_url: '',
+  status: 0,
+  status_text: '',
+  duration_ms: 0,
+  ok: false,
+  error: '',
+};
+
+const controller = new AbortController();
+const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+try {
+  const response = await fetch(url, {
+    method: 'GET',
+    redirect: 'follow',
+    signal: controller.signal,
+    headers: {
+      'user-agent': 'agentic-buildout-starter/n8n-website-checker',
+    },
+  });
+
+  result = {
+    ...result,
+    final_url: response.url,
+    status: response.status,
+    status_text: response.statusText,
+    duration_ms: Date.now() - startedAt,
+    ok: response.status >= 200 && response.status < 400,
+  };
+} catch (error) {
+  result = {
+    ...result,
+    duration_ms: Date.now() - startedAt,
+    error: error instanceof Error ? error.message : String(error),
+  };
+} finally {
+  clearTimeout(timeout);
+}
+
+const slackMessage = [
+  'Website check failed',
+  'URL: ' + result.website_url,
+  'Status: ' + (result.status || 'request failed'),
+  'Final URL: ' + (result.final_url || 'not reached'),
+  'Duration: ' + result.duration_ms + 'ms',
+  'Error: ' + (result.error || 'HTTP status outside 2xx/3xx')
+].join('\\\\n');
+
+return { json: { ...$json, ...result, slack_message: slackMessage } };
+\`
+    }
+  }
+});
+
+const websiteUp = ifElse({
+  version: 2.3,
+  config: {
+    name: 'Website is Up?',
+    parameters: {
+      conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ String($json.ok) }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'true' }], combinator: 'and' }
+    }
+  }
+});
+
+const slackAlert = node({
+  type: 'n8n-nodes-base.slack',
+  version: 2.4,
+  config: {
+    name: 'Send Slack Website Alert',
+    parameters: {
+      resource: 'message',
+      operation: 'post',
+      authentication: 'accessToken',
+      select: 'channel',
+      channelId: { __rl: true, mode: 'name', value: '#workflow-builder' },
+      messageType: 'text',
+      text: expr('{{ $json.slack_message }}'),
+      otherOptions: { includeLinkToWorkflow: false, mrkdwn: true }
+    }
+  }
+});
+
+export default workflow('website-checker', 'Website Checker')
+  .add(schedule)
+  .to(config)
+  .to(checkWebsite)
+  .to(websiteUp.onFalse(slackAlert));
+`;
+
 const deploymentWorkflow = `
 import { workflow, node, trigger, newCredential, ifElse, expr } from '@n8n/workflow-sdk';
 
@@ -1042,6 +1181,11 @@ let workflows = [
     name: 'GitHub PR Feedback to Codex Revision Queue',
     code: prFeedbackWorkflow,
     description: 'Receives /codex revise PR comments, moves Plane back to In Progress, and notifies Slack that Codex should revise the PR branch.',
+  },
+  {
+    name: 'Website Checker',
+    code: websiteCheckerWorkflow,
+    description: 'Runs an n8n scheduled website availability check for http://www.tciallc.com/ and alerts Slack when it fails.',
   },
 ];
 

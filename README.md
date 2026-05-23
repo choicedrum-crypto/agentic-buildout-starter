@@ -30,7 +30,7 @@ OpenClaw can remain local for separate workflows, but it is not required for thi
 
 ## Included Automation
 
-- Website checker: scheduled GitHub Actions workflow and local script for checking `http://www.tciallc.com/`. See `docs/website-checker.md`.
+- Website checker: scheduled n8n workflow for checking `http://www.tciallc.com/`. See `docs/website-checker.md`.
 
 ## First Setup
 

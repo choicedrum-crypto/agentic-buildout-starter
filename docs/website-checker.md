@@ -1,22 +1,19 @@
 # Website Checker
 
-The website checker verifies that `http://www.tciallc.com/` responds with an HTTP 2xx or 3xx status.
+The website checker is an n8n routine that verifies `http://www.tciallc.com/` responds with an HTTP 2xx or 3xx status.
 
-## GitHub Actions
+## n8n Workflow
 
-Workflow: `.github/workflows/website-checker.yml`
+Workflow: `Website Checker`
 
-The workflow runs every 30 minutes and can also be started manually from GitHub Actions. Manual runs accept:
+Spec: `n8n-workflows/website-checker.spec.json`
 
-- `url` - defaults to `http://www.tciallc.com/`
-- `timeout_ms` - defaults to `15000`
+The workflow runs every 30 minutes in Hostinger n8n. It checks the configured website URL, follows redirects, and posts to Slack only when the site is down or the request fails.
 
-## Local Check
+## Defaults
 
-Run the same check locally:
+- URL: `http://www.tciallc.com/`
+- Timeout: `15000` milliseconds
+- Slack channel: `#workflow-builder`
 
-```bash
-node scripts/check-website.mjs --url http://www.tciallc.com/ --timeout-ms 15000
-```
-
-The script prints JSON with the requested URL, final URL after redirects, HTTP status, and response time. It exits with a non-zero status when the site does not return a 2xx or 3xx response.
+Routine automations should default to n8n workflows unless there is a specific reason to use GitHub Actions.
