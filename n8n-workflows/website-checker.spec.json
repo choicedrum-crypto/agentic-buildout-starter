@@ -4,18 +4,30 @@
   "runtime": "Hostinger n8n",
   "purpose": "Check whether http://www.tciallc.com/ is up on a recurring schedule and notify Slack only when the check fails.",
   "trigger": {
-    "type": "schedule",
+    "type": "schedule, manual, and test webhook",
     "source": "n8n",
-    "interval": "Every 30 minutes"
+    "interval": "Every 30 minutes",
+    "manual": "Manual test trigger for operator verification",
+    "test_path": "/webhook/website-checker-test"
   },
   "credentials": [
     "Slack credential in n8n"
   ],
   "nodes": [
     {
+      "id": "manual_test",
+      "type": "Manual Trigger",
+      "name": "Manual Test Trigger"
+    },
+    {
       "id": "schedule",
       "type": "Schedule Trigger",
       "name": "Every 30 minutes"
+    },
+    {
+      "id": "test_webhook",
+      "type": "Webhook",
+      "name": "Website Checker Test Webhook"
     },
     {
       "id": "config",
@@ -53,6 +65,12 @@
       "type": "Slack",
       "name": "Send Slack Website Alert",
       "message_template_ref": "templates.slack_alert_message"
+    },
+    {
+      "id": "respond_test_result",
+      "type": "Respond to Webhook",
+      "name": "Return website check result",
+      "status": 200
     }
   ],
   "templates": {
