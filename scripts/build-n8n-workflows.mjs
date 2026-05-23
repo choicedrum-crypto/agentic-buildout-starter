@@ -477,6 +477,20 @@ const fetchMergedPr = node({
   }
 });
 
+const fetchPrsForCommit = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Fetch PRs for Deploy Commit',
+    parameters: {
+      method: 'GET',
+      url: expr('{{ "https://api.github.com/repos/" + $json.config.github_owner + "/" + $json.config.github_repo + "/commits/" + $json.head_sha + "/pulls" }}'),
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Accept', value: 'application/vnd.github+json' }] }
+    }
+  }
+});
+
 const resolvePlaneContext = node({
   type: 'n8n-nodes-base.code',
   version: 2,
@@ -487,7 +501,8 @@ const resolvePlaneContext = node({
       language: 'javaScript',
       jsCode: \`
 const base = $('Extract Deployment Context').item.json;
-const pr = $json || {};
+const value = $json || {};
+const pr = Array.isArray(value) ? (value[0] || {}) : value;
 const text = [
   base.plane_issue_id || '',
   base.plane_url || '',
@@ -507,7 +522,7 @@ const message = [
   'Repo: ' + (base.repository || base.config.github_owner + '/' + base.config.github_repo),
   'Commit: ' + (base.head_sha || 'unknown'),
   'Run: ' + (base.run_url || 'not provided'),
-  'PR: ' + (pr.html_url || (base.pr_number ? 'https://github.com/' + base.config.github_owner + '/' + base.config.github_repo + '/pull/' + base.pr_number : 'not resolved')),
+  'PR: ' + (pr.html_url || (base.pr_number ? 'https://github.com/' + base.config.github_owner + '/' + base.config.github_repo + '/pull/' + base.pr_number : 'not resolved from commit')),
   'Plane: ' + (planeUrl || planeIssueId || 'not resolved'),
   'Plane status update: ' + (planeIssueId ? 'queued' : 'skipped, Plane task not resolved')
 ].join('\\\\n');
@@ -587,7 +602,7 @@ export default workflow('deployment-result-plane-slack', 'Deployment Result to P
       .onTrue(fetchMergedPr.to(resolvePlaneContext).to(hasPlane
         .onTrue(updatePlane.to(restoreDeployMessage).to(slackDeploy).to(respondSynced))
         .onFalse(slackDeploy.to(respondSynced))))
-      .onFalse(resolvePlaneContext.to(hasPlane
+      .onFalse(fetchPrsForCommit.to(resolvePlaneContext).to(hasPlane
         .onTrue(updatePlane.to(restoreDeployMessage).to(slackDeploy).to(respondSynced))
         .onFalse(slackDeploy.to(respondSynced)))))
     .onFalse(respondIgnored));
