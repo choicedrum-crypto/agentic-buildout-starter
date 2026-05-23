@@ -163,6 +163,43 @@ const noExistingIssue = ifElse({
   }
 });
 
+const searchExistingGitHubIssues = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Search Existing GitHub Issues',
+    parameters: {
+      method: 'GET',
+      url: expr('{{ "https://api.github.com/search/issues?q=" + encodeURIComponent("repo:" + $json.config.github_owner + "/" + $json.config.github_repo + " type:issue plane_issue_id: " + $json.plane_issue_id) }}'),
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Accept', value: 'application/vnd.github+json' }] }
+    }
+  }
+});
+
+const detectExistingGitHubIssue = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Detect Existing GitHub Issue',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const original = $('Normalize Plane Payload').item.json;
+const value = $json;
+let existingUrl = original.existing_github_issue_url || '';
+const issues = Array.isArray(value.items) ? value.items : [];
+const exactIssue = issues.find((issue) => String(issue.body || '').includes('plane_issue_id: ' + original.plane_issue_id));
+if (exactIssue?.html_url) {
+  existingUrl = exactIssue.html_url;
+}
+return { json: { ...original, existing_github_issue_url: existingUrl, has_existing_github_issue: Boolean(existingUrl) } };
+\`
+    }
+  }
+});
+
 const createIssue = node({
   type: 'n8n-nodes-base.github',
   version: 1.1,
@@ -233,9 +270,9 @@ export default workflow('plane-ready-github-issue', 'Plane Ready to GitHub Issue
   .to(config)
   .to(normalize)
   .to(isReady
-    .onTrue(noExistingIssue
+    .onTrue(searchExistingGitHubIssues.to(detectExistingGitHubIssue).to(noExistingIssue
       .onTrue(createIssue.to(commentPlane).to(respondCreated))
-      .onFalse(respondDuplicate))
+      .onFalse(respondDuplicate)))
     .onFalse(respondIgnored));
 `;
 
