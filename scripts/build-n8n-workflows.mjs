@@ -171,7 +171,7 @@ const searchExistingGitHubIssues = node({
     name: 'Search Existing GitHub Issues',
     parameters: {
       method: 'GET',
-      url: expr('{{ "https://api.github.com/search/issues?q=" + encodeURIComponent("repo:" + $json.config.github_owner + "/" + $json.config.github_repo + " type:issue plane_issue_id: " + $json.plane_issue_id) }}'),
+      url: expr('{{ "https://api.github.com/search/issues?q=" + encodeURIComponent("repo:" + $json.config.github_owner + "/" + $json.config.github_repo + " type:issue plane_issue_id: " + $json.plane_issue_id) + "&sort=created&order=asc" }}'),
       sendHeaders: true,
       headerParameters: { parameters: [{ name: 'Accept', value: 'application/vnd.github+json' }] }
     }
@@ -191,7 +191,9 @@ const original = $('Normalize Plane Payload').item.json;
 const value = $json;
 let existingUrl = original.existing_github_issue_url || '';
 const issues = Array.isArray(value.items) ? value.items : [];
-const exactIssue = issues.find((issue) => String(issue.body || '').includes('plane_issue_id: ' + original.plane_issue_id));
+const exactIssue = issues
+  .filter((issue) => String(issue.body || '').includes('plane_issue_id: ' + original.plane_issue_id))
+  .sort((a, b) => Number(a.number || 0) - Number(b.number || 0))[0];
 if (exactIssue?.html_url) {
   existingUrl = exactIssue.html_url;
 }
@@ -220,6 +222,52 @@ const createIssue = node({
   }
 });
 
+const searchCanonicalGitHubIssue = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Search Canonical GitHub Issue',
+    parameters: {
+      method: 'GET',
+      url: expr('{{ "https://api.github.com/search/issues?q=" + encodeURIComponent("repo:" + $("Normalize Plane Payload").item.json.config.github_owner + "/" + $("Normalize Plane Payload").item.json.config.github_repo + " type:issue plane_issue_id: " + $("Normalize Plane Payload").item.json.plane_issue_id) + "&sort=created&order=asc" }}'),
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Accept', value: 'application/vnd.github+json' }] }
+    }
+  }
+});
+
+const resolveCanonicalGitHubIssue = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Resolve Canonical GitHub Issue',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const original = $('Normalize Plane Payload').item.json;
+const created = $('Create GitHub Issue').item.json;
+const issues = Array.isArray($json.items) ? $json.items : [];
+const exactIssues = issues
+  .filter((issue) => String(issue.body || '').includes('plane_issue_id: ' + original.plane_issue_id))
+  .sort((a, b) => Number(a.number || 0) - Number(b.number || 0));
+const canonical = exactIssues[0] || created;
+const duplicateCreated = Boolean(created.number && canonical.number && Number(created.number) !== Number(canonical.number));
+return {
+  json: {
+    ...original,
+    created_github_issue_url: created.html_url,
+    created_github_issue_number: created.number,
+    canonical_github_issue_url: canonical.html_url || created.html_url,
+    canonical_github_issue_number: canonical.number || created.number,
+    duplicate_created: duplicateCreated,
+  },
+};
+\`
+    }
+  }
+});
+
 const commentPlane = node({
   type: 'n8n-nodes-base.httpRequest',
   version: 4.4,
@@ -236,7 +284,7 @@ const commentPlane = node({
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
-      jsonBody: expr('{{ { comment_html: "<p>GitHub issue created: " + $json.html_url + "</p>", comment_json: {}, access: "INTERNAL", external_source: "github", external_id: String($json.number || "") } }}')
+      jsonBody: expr('{{ { comment_html: "<p>GitHub issue " + ($json.duplicate_created ? "resolved to existing canonical issue" : "created") + ": " + $json.canonical_github_issue_url + "</p>", comment_json: {}, access: "INTERNAL", external_source: "github", external_id: String($json.canonical_github_issue_number || "") } }}')
     }
   }
 });
@@ -248,7 +296,7 @@ const respondCreated = node({
     name: 'Respond Created',
     parameters: {
       respondWith: 'json',
-      responseBody: expr('{{ { ok: true, action: "created_github_issue", github_issue_url: $("Create GitHub Issue").item.json.html_url, plane_issue_id: $("Normalize Plane Payload").item.json.plane_issue_id } }}'),
+      responseBody: expr('{{ { ok: true, action: $json.duplicate_created ? "canonical_github_issue" : "created_github_issue", github_issue_url: $json.canonical_github_issue_url, created_github_issue_url: $json.created_github_issue_url, duplicate_created: $json.duplicate_created, plane_issue_id: $("Normalize Plane Payload").item.json.plane_issue_id } }}'),
       options: { responseCode: 200 }
     }
   }
@@ -272,7 +320,7 @@ export default workflow('plane-ready-github-issue', 'Plane Ready to GitHub Issue
   .to(normalize)
   .to(isReady
     .onTrue(searchExistingGitHubIssues.to(detectExistingGitHubIssue).to(noExistingIssue
-      .onTrue(createIssue.to(commentPlane).to(respondCreated))
+      .onTrue(createIssue.to(searchCanonicalGitHubIssue).to(resolveCanonicalGitHubIssue).to(commentPlane).to(respondCreated))
       .onFalse(respondDuplicate)))
     .onFalse(respondIgnored));
 `;
