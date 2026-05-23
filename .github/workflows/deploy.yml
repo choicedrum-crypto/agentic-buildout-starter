@@ -1,0 +1,77 @@
+name: Deploy After Merge
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy placeholder
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate automation specs before deploy
+        run: bash ./scripts/validate-workflows.sh
+
+      - name: Deploy application
+        run: |
+          echo "Deployment placeholder only."
+          echo "Replace this step with the production deploy command once the target app is defined."
+
+  notify:
+    name: Notify deployment result
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: always()
+    timeout-minutes: 5
+
+    steps:
+      - name: Notify Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL is not configured; skipping Slack deployment notification."
+            exit 0
+          fi
+
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          result = os.environ["DEPLOY_RESULT"]
+          status = "succeeded" if result == "success" else "failed"
+          payload = {
+              "text": f"Deployment {status} for {os.environ['REPO']}@{os.environ['SHA'][:7]}\nRun: {os.environ['RUN_URL']}"
+          }
+          request = urllib.request.Request(
+              os.environ["SLACK_WEBHOOK_URL"],
+              data=json.dumps(payload).encode("utf-8"),
+              headers={"Content-Type": "application/json"},
+          )
+          with urllib.request.urlopen(request, timeout=10) as response:
+              response.read()
+          PY
+
+      - name: Fail if deployment failed
+        if: ${{ needs.deploy.result != 'success' }}
+        run: exit 1

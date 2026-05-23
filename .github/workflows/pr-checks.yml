@@ -1,0 +1,47 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate-automation-specs:
+    name: Validate automation specs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate workflow JSON
+        run: bash ./scripts/validate-workflows.sh
+
+      - name: Check required documentation
+        run: |
+          test -f README.md
+          test -f docs/setup.md
+          test -f docs/testing-checklist.md
+          test -f docs/secrets.md
+
+      - name: Ensure no committed secret placeholders
+        run: |
+          ! grep -RInE --exclude-dir=.git --exclude=pr-checks.yml '(xox[baprs]-|ghp_|github_pat_|sk-[A-Za-z0-9]|-----BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY-----)' .
