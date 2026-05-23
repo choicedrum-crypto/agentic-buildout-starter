@@ -1,0 +1,67 @@
+{
+  "name": "Website Checker",
+  "version": 1,
+  "runtime": "Hostinger n8n",
+  "purpose": "Check whether http://www.tciallc.com/ is up on a recurring schedule and notify Slack only when the check fails.",
+  "trigger": {
+    "type": "schedule",
+    "source": "n8n",
+    "interval": "Every 30 minutes"
+  },
+  "credentials": [
+    "Slack credential in n8n"
+  ],
+  "nodes": [
+    {
+      "id": "schedule",
+      "type": "Schedule Trigger",
+      "name": "Every 30 minutes"
+    },
+    {
+      "id": "config",
+      "type": "Set",
+      "name": "CONFIG",
+      "notes": "First workflow node after the trigger. Store shared constants here instead of n8n global variables.",
+      "values": {
+        "website_url": "http://www.tciallc.com/",
+        "timeout_ms": 15000,
+        "slack_alert_channel": "#workflow-builder"
+      }
+    },
+    {
+      "id": "check_website",
+      "type": "Code",
+      "name": "Check Website",
+      "outputs": {
+        "ok": "true when HTTP status is 2xx or 3xx",
+        "status": "HTTP status code or 0 when request fails",
+        "final_url": "Final URL after redirects",
+        "duration_ms": "Request duration in milliseconds",
+        "error": "Failure reason when request fails"
+      }
+    },
+    {
+      "id": "website_up",
+      "type": "IF",
+      "name": "Website is up",
+      "condition": "ok equals true",
+      "on_true": "End workflow without notification.",
+      "on_false": "Send Slack alert."
+    },
+    {
+      "id": "send_slack_alert",
+      "type": "Slack",
+      "name": "Send Slack Website Alert",
+      "message_template_ref": "templates.slack_alert_message"
+    }
+  ],
+  "templates": {
+    "slack_alert_message": "Website check failed\nURL: {{website_url}}\nStatus: {{status}}\nFinal URL: {{final_url}}\nDuration: {{duration_ms}}ms\nError: {{error}}"
+  },
+  "safe_failure_handling": [
+    "Only alert Slack on failed checks.",
+    "Use a timeout so the workflow cannot hang indefinitely.",
+    "Do not store secrets in workflow code or CONFIG.",
+    "Keep the routine in n8n; GitHub Actions should not run this recurring website check."
+  ]
+}

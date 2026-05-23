@@ -30,6 +30,16 @@ Use this checklist before trusting the automation with real work.
 - Confirm Slack receives the PR / merge link.
 - Confirm checks show as pending, passing, failing, or unavailable without breaking the workflow.
 
+## PR Feedback to Codex Revision
+
+- Comment `/codex revise` on a Plane-backed PR with a requested change.
+- Confirm n8n ignores ordinary comments and comments on non-PR issues.
+- Confirm n8n moves linked Plane tasks to `In Progress`.
+- Confirm Plane receives a revision request comment.
+- Confirm Slack receives the Codex revision request with PR link, branch, Plane context, and feedback.
+- Confirm GitHub receives a queued acknowledgement comment.
+- Push a revision commit and confirm the PR synchronize event returns Plane to `Review`.
+
 ## Merge and Deploy
 
 - Merge a test PR.

@@ -76,4 +76,27 @@ PR body handoff:
 Safe behavior:
 - If Plane cannot be resolved, still notify Slack with the GitHub Actions run URL.
 - If Slack fails, let the GitHub webhook retry.
+
+## Workflow D: GitHub PR Feedback to Codex Revision Queue
+
+Spec: `n8n-workflows/github-pr-feedback-to-codex-revision.spec.json`
+
+Trigger:
+- GitHub `issue_comment` webhook for `created`.
+- The workflow must validate `X-Hub-Signature-256`.
+
+Core logic:
+1. Continue only when the comment is on a PR and starts with `/codex revise`.
+2. Fetch PR details and parse `plane_issue_id`, Plane URL, PR URL, branch, and revision request.
+3. Move linked Plane tasks to `In Progress`.
+4. Comment on Plane with the requested revision.
+5. Notify Slack that Codex revision is queued.
+6. Acknowledge the request on the GitHub PR.
+
+Example PR comment:
+
+```text
+/codex revise
+Please rebuild this as an n8n workflow instead of a GitHub Actions workflow.
+```
 - n8n never runs deployment commands.

@@ -28,6 +28,10 @@ OpenClaw can remain local for separate workflows, but it is not required for thi
 - `scripts/` - local and CI validation helpers.
 - `tests/` - test notes and future fixtures.
 
+## Included Automation
+
+- Website checker: scheduled n8n workflow for checking `http://www.tciallc.com/`. See `docs/website-checker.md`.
+
 ## First Setup
 
 1. Push this repo to GitHub.
