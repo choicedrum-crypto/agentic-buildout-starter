@@ -28,6 +28,21 @@ plane_url: <Plane task URL>
 
 If the deployment comment is missing but Slack and the Plane state update succeed, open the deployment workflow in n8n and confirm the `Comment on Plane with Deployment Result` node is bound to the existing `Plane Main` HTTP Header Auth credential. The node is intentionally placed after `Update Plane Status`, so the core status update and Slack notification remain the primary signal while credential binding is repaired.
 
+## Request a revision
+
+1. Open the GitHub PR from Slack or Plane.
+2. Add a PR comment that starts with:
+
+```text
+/codex revise
+```
+
+3. Put the requested change below the command.
+4. Confirm Plane moves back to `In Progress`.
+5. Confirm Slack receives the revision request.
+6. Ask Codex to execute the queued revision.
+7. Confirm the next PR update moves Plane back to `Review`.
+
 ## Recover from duplicates
 
 1. Keep the oldest valid GitHub issue created for the Plane task.

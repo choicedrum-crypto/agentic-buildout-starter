@@ -49,6 +49,7 @@ Suggested webhook paths:
 Create GitHub webhooks pointing to Hostinger n8n:
 
 - Pull request webhook -> `/webhook/github-pr-review`
+- Issue comment webhook -> `/webhook/github-pr-feedback`
 - Workflow run webhook -> `/webhook/github-deploy-result`
 
 Use a GitHub webhook secret and validate `X-Hub-Signature-256` in n8n.

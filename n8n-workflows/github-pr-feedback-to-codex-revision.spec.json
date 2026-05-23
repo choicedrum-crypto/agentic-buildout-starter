@@ -1,0 +1,126 @@
+{
+  "name": "GitHub PR Feedback to Codex Revision Queue",
+  "version": 1,
+  "runtime": "Hostinger n8n",
+  "purpose": "Turn /codex revise PR comments into a tracked Codex revision request, move linked Plane work back to In Progress, and notify Slack.",
+  "trigger": {
+    "type": "webhook",
+    "source": "GitHub",
+    "path": "/webhook/github-pr-feedback",
+    "events": [
+      "issue_comment"
+    ],
+    "actions": [
+      "created"
+    ],
+    "security": {
+      "required": true,
+      "recommended": "Validate X-Hub-Signature-256 using the GitHub webhook secret stored in n8n credentials."
+    }
+  },
+  "credentials": [
+    "GitHub API credential in n8n",
+    "Plane API credential in n8n",
+    "Slack credential in n8n"
+  ],
+  "nodes": [
+    {
+      "id": "github_pr_feedback_webhook",
+      "type": "Webhook",
+      "name": "Receive GitHub issue_comment event"
+    },
+    {
+      "id": "config",
+      "type": "Set",
+      "name": "CONFIG",
+      "notes": "First workflow node after the trigger. Store shared constants here instead of n8n global variables.",
+      "values": {
+        "github_owner": "GitHub repository owner or organization",
+        "github_repo": "GitHub repository name",
+        "revision_command": "/codex revise",
+        "plane_workspace_slug": "Plane workspace slug",
+        "plane_project_id": "Plane project ID",
+        "plane_in_progress_state_name": "In Progress",
+        "slack_revision_channel": "Slack channel for revision queue messages",
+        "public_n8n_base_url": "https://n8n.tradecredit.agency"
+      }
+    },
+    {
+      "id": "verify_github_signature",
+      "type": "Code or IF",
+      "name": "Verify GitHub webhook signature",
+      "on_false": "Respond 401 and stop."
+    },
+    {
+      "id": "filter_codex_revision_comment",
+      "type": "IF",
+      "name": "Codex revision requested",
+      "condition": "comment is on a PR and starts with /codex revise",
+      "on_false": "Respond 200 ignored."
+    },
+    {
+      "id": "fetch_pr_details",
+      "type": "GitHub or HTTP Request",
+      "name": "Fetch PR details",
+      "request": "GET /repos/{owner}/{repo}/pulls/{pr_number}"
+    },
+    {
+      "id": "resolve_revision_context",
+      "type": "Code",
+      "name": "Resolve revision context",
+      "outputs": {
+        "pr_url": "Pull request URL",
+        "branch": "PR head branch",
+        "revision_request": "Feedback text after /codex revise",
+        "plane_issue_id": "Plane issue UUID parsed from PR body or comment",
+        "plane_url": "Plane task URL parsed from PR body or comment"
+      }
+    },
+    {
+      "id": "move_plane_in_progress",
+      "type": "HTTP Request",
+      "name": "Move Plane to In Progress",
+      "condition": "plane_issue_id exists",
+      "request": "Use Plane API to set work item state to In Progress.",
+      "on_error": "Continue to Slack and GitHub acknowledgement with a repair note."
+    },
+    {
+      "id": "comment_plane_revision",
+      "type": "HTTP Request",
+      "name": "Comment on Plane with revision request",
+      "condition": "plane_issue_id exists",
+      "request": "Add Plane comment containing PR URL and revision request.",
+      "on_error": "Continue to Slack and GitHub acknowledgement with a repair note."
+    },
+    {
+      "id": "notify_slack_revision",
+      "type": "Slack",
+      "name": "Send revision request to Slack",
+      "message_template_ref": "templates.slack_revision_message",
+      "on_error": "Respond 502 so GitHub webhook delivery can retry."
+    },
+    {
+      "id": "acknowledge_github",
+      "type": "GitHub or HTTP Request",
+      "name": "Acknowledge revision on GitHub",
+      "request": "POST /repos/{owner}/{repo}/issues/{pr_number}/comments",
+      "on_error": "Do not fail the revision queue if Slack and Plane already succeeded."
+    },
+    {
+      "id": "respond_success",
+      "type": "Respond to Webhook",
+      "name": "Return revision queued result",
+      "status": 200
+    }
+  ],
+  "templates": {
+    "slack_revision_message": "Codex revision requested\nPR: {{pr_url}}\nBranch: {{branch}}\nPlane: {{plane_url}}\nRequest: {{revision_request}}\nNext: Codex should revise the PR branch and push an update."
+  },
+  "safe_failure_handling": [
+    "Only respond to comments that begin with /codex revise.",
+    "Only process comments on pull requests, not ordinary issues.",
+    "If Plane cannot be resolved, still notify Slack and acknowledge GitHub.",
+    "Do not expose webhook secrets in Slack, Plane, or GitHub comments.",
+    "Keep Codex deployment out of this flow; this only queues revision work."
+  ]
+}

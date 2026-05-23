@@ -497,6 +497,267 @@ export default workflow('github-pr-slack-review', 'GitHub PR to Slack Review')
     .onFalse(respondIgnored));
 `;
 
+const prFeedbackWorkflow = `
+import { workflow, node, trigger, newCredential, ifElse, expr } from '@n8n/workflow-sdk';
+
+const githubCommentWebhook = trigger({
+  type: 'n8n-nodes-base.webhook',
+  version: 2.1,
+  config: { name: 'GitHub PR Feedback Webhook', parameters: { httpMethod: 'POST', path: 'github-pr-feedback', authentication: 'none', responseMode: 'responseNode', options: { rawBody: true } } }
+});
+
+const config = node({
+  type: 'n8n-nodes-base.set',
+  version: 3.4,
+  config: {
+    name: 'CONFIG',
+    parameters: {
+      mode: 'manual',
+      includeOtherFields: true,
+      assignments: {
+        assignments: [
+          { id: 'config-object', name: 'config', type: 'object', value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", slack_revision_channel: "#workflow-builder", revision_command: "/codex revise", github_signature_validation: "pending-secret-credential", plane_api_base_url: "https://api.plane.so", plane_workspace_slug: "tcia", plane_project_id: "a0edb37d-263d-40c0-a34b-f77bbe9ba85d", plane_in_progress_state_id: "57e8338f-7181-44f6-9f5e-806a425ec6b2", plane_in_progress_state_name: "In Progress", public_n8n_base_url: "https://n8n.tradecredit.agency" } }}') }
+        ]
+      }
+    }
+  }
+});
+
+const extractFeedback = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Extract Revision Feedback',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const config = $json.config || {};
+const body = $json.body || $json;
+const action = body.action || '';
+const issue = body.issue || {};
+const comment = body.comment || {};
+const command = config.revision_command || '/codex revise';
+const commentBody = String(comment.body || '');
+const isPr = Boolean(issue.pull_request);
+const commandMatched = commentBody.trim().toLowerCase().startsWith(command.toLowerCase());
+const revisionRequest = commandMatched ? commentBody.trim().slice(command.length).trim() : '';
+const prNumber = issue.number || '';
+const valid = action === 'created' && isPr && commandMatched && Boolean(prNumber);
+return {
+  json: {
+    ...$json,
+    config,
+    valid_revision_request: valid,
+    github_action: action,
+    pr_number: String(prNumber || ''),
+    pr_url: issue.html_url || '',
+    issue_body: issue.body || '',
+    comment_url: comment.html_url || '',
+    comment_author: comment.user?.login || '',
+    revision_request: revisionRequest || 'No revision details provided.',
+  },
+};
+\`
+    }
+  }
+});
+
+const shouldQueue = ifElse({
+  version: 2.3,
+  config: {
+    name: 'Codex Revision Requested?',
+    parameters: {
+      conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ String($json.valid_revision_request) }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'true' }], combinator: 'and' }
+    }
+  }
+});
+
+const fetchPr = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Fetch PR Details',
+    parameters: {
+      method: 'GET',
+      url: expr('{{ "https://api.github.com/repos/" + $json.config.github_owner + "/" + $json.config.github_repo + "/pulls/" + $json.pr_number }}'),
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Accept', value: 'application/vnd.github+json' }] }
+    }
+  }
+});
+
+const resolveRevision = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Resolve Revision Context',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const base = $('Extract Revision Feedback').item.json;
+const pr = $json || {};
+const text = [base.revision_request || '', base.issue_body || '', pr.body || '', pr.title || ''].join('\\\\n');
+const planeIssueId = text.match(/plane_issue_id:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] || '';
+const planeUrl = text.match(/https?:\\\\/\\\\/[^\\\\s)"]*plane[^\\\\s)"]*/i)?.[0] || '';
+const prUrl = pr.html_url || base.pr_url || '';
+const branch = pr.head?.ref || '';
+const slackMessage = [
+  'Codex revision requested',
+  'PR: ' + (prUrl || 'not provided'),
+  'Branch: ' + (branch || 'not resolved'),
+  'Plane: ' + (planeUrl || planeIssueId || 'not resolved'),
+  'Requested by: ' + (base.comment_author || 'unknown'),
+  'Request: ' + base.revision_request,
+  'Next: Codex should revise the PR branch and push an update.'
+].join('\\\\n');
+const githubAck = [
+  'Codex revision queued.',
+  '',
+  planeIssueId ? 'Plane moved to In Progress.' : 'Plane metadata was not resolved; Plane update skipped.',
+  '',
+  'Revision request:',
+  base.revision_request
+].join('\\\\n');
+return { json: { ...base, pr_title: pr.title || '', pr_url: prUrl, branch, plane_issue_id: planeIssueId, plane_url: planeUrl, slack_message: slackMessage, github_ack_body: githubAck, plane_state_id: base.config.plane_in_progress_state_id } };
+\`
+    }
+  }
+});
+
+const hasPlane = ifElse({
+  version: 2.3,
+  config: {
+    name: 'Plane Task Resolved?',
+    parameters: {
+      conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ $json.plane_issue_id }}'), operator: { type: 'string', operation: 'notEmpty' } }], combinator: 'and' }
+    }
+  }
+});
+
+const updatePlane = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Move Plane to In Progress',
+    alwaysOutputData: true,
+    continueOnFail: true,
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    parameters: {
+      method: 'PATCH',
+      url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.config.plane_project_id + "/work-items/" + $json.plane_issue_id + "/" }}'),
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] },
+      sendBody: true,
+      contentType: 'json',
+      specifyBody: 'json',
+      jsonBody: expr('{{ { state: $json.plane_state_id } }}')
+    }
+  }
+});
+
+const commentPlane = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Comment on Plane with Revision Request',
+    alwaysOutputData: true,
+    continueOnFail: true,
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    parameters: {
+      method: 'POST',
+      url: expr('{{ $("Resolve Revision Context").item.json.config.plane_api_base_url + "/api/v1/workspaces/" + $("Resolve Revision Context").item.json.config.plane_workspace_slug + "/projects/" + $("Resolve Revision Context").item.json.config.plane_project_id + "/work-items/" + $("Resolve Revision Context").item.json.plane_issue_id + "/comments/" }}'),
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] },
+      sendBody: true,
+      contentType: 'json',
+      specifyBody: 'json',
+      jsonBody: expr('{{ { comment_html: "<p>Revision requested from GitHub PR feedback.</p><p>PR: " + $("Resolve Revision Context").item.json.pr_url + "</p><p>Request: " + $("Resolve Revision Context").item.json.revision_request + "</p>", comment_json: {}, access: "INTERNAL", external_source: "github_pr_feedback", external_id: String($("Resolve Revision Context").item.json.comment_url || $("Resolve Revision Context").item.json.pr_url || "") } }}')
+    }
+  }
+});
+
+const restoreRevision = node({
+  type: 'n8n-nodes-base.set',
+  version: 3.4,
+  config: {
+    name: 'Restore Revision Notification',
+    parameters: {
+      mode: 'manual',
+      includeOtherFields: true,
+      assignments: {
+        assignments: [
+          { id: 'slack-message', name: 'slack_message', type: 'string', value: expr('{{ $("Resolve Revision Context").item.json.slack_message }}') },
+          { id: 'github-ack', name: 'github_ack_body', type: 'string', value: expr('{{ $("Resolve Revision Context").item.json.github_ack_body }}') },
+          { id: 'pr-url', name: 'pr_url', type: 'string', value: expr('{{ $("Resolve Revision Context").item.json.pr_url }}') },
+          { id: 'pr-number', name: 'pr_number', type: 'string', value: expr('{{ $("Resolve Revision Context").item.json.pr_number }}') },
+          { id: 'plane-issue-id', name: 'plane_issue_id', type: 'string', value: expr('{{ $("Resolve Revision Context").item.json.plane_issue_id }}') }
+        ]
+      }
+    }
+  }
+});
+
+const slackRevision = node({
+  type: 'n8n-nodes-base.slack',
+  version: 2.4,
+  config: {
+    name: 'Send Slack Revision Request',
+    parameters: {
+      resource: 'message',
+      operation: 'post',
+      authentication: 'accessToken',
+      select: 'channel',
+      channelId: { __rl: true, mode: 'name', value: '#workflow-builder' },
+      messageType: 'text',
+      text: expr('{{ $json.slack_message }}'),
+      otherOptions: { includeLinkToWorkflow: false, mrkdwn: true }
+    }
+  }
+});
+
+const acknowledgeGitHub = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Acknowledge Revision on GitHub',
+    alwaysOutputData: true,
+    continueOnFail: true,
+    credentials: { githubApi: newCredential('${githubCredential}') },
+    parameters: {
+      method: 'POST',
+      url: expr('{{ "https://api.github.com/repos/" + $("Resolve Revision Context").item.json.config.github_owner + "/" + $("Resolve Revision Context").item.json.config.github_repo + "/issues/" + $("Resolve Revision Context").item.json.pr_number + "/comments" }}'),
+      authentication: 'predefinedCredentialType',
+      nodeCredentialType: 'githubApi',
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Accept', value: 'application/vnd.github+json' }] },
+      sendBody: true,
+      contentType: 'json',
+      specifyBody: 'json',
+      jsonBody: expr('{{ { body: $("Resolve Revision Context").item.json.github_ack_body } }}')
+    }
+  }
+});
+
+const respondQueued = node({ type: 'n8n-nodes-base.respondToWebhook', version: 1.5, config: { name: 'Respond Revision Queued', parameters: { respondWith: 'json', responseBody: expr('{{ { ok: true, action: "codex_revision_queued", pr_url: $("Resolve Revision Context").item.json.pr_url, plane_issue_id: $("Resolve Revision Context").item.json.plane_issue_id || "" } }}'), options: { responseCode: 200 } } } });
+const respondIgnored = node({ type: 'n8n-nodes-base.respondToWebhook', version: 1.5, config: { name: 'Respond Ignored', parameters: { respondWith: 'json', responseBody: expr('{{ { ok: true, action: "ignored_comment", github_action: $json.github_action } }}'), options: { responseCode: 200 } } } });
+
+export default workflow('github-pr-feedback-revision-queue', 'GitHub PR Feedback to Codex Revision Queue')
+  .add(githubCommentWebhook)
+  .to(config)
+  .to(extractFeedback)
+  .to(shouldQueue
+    .onTrue(fetchPr.to(resolveRevision).to(hasPlane
+      .onTrue(updatePlane.to(commentPlane).to(restoreRevision).to(slackRevision).to(acknowledgeGitHub).to(respondQueued))
+      .onFalse(restoreRevision.to(slackRevision).to(acknowledgeGitHub).to(respondQueued))))
+    .onFalse(respondIgnored));
+`;
+
 const deploymentWorkflow = `
 import { workflow, node, trigger, newCredential, ifElse, expr } from '@n8n/workflow-sdk';
 
@@ -776,6 +1037,11 @@ let workflows = [
     name: 'Deployment Result to Plane and Slack',
     code: deploymentWorkflow,
     description: 'Receives GitHub deployment workflow results, updates Plane status when resolved, and notifies Slack.',
+  },
+  {
+    name: 'GitHub PR Feedback to Codex Revision Queue',
+    code: prFeedbackWorkflow,
+    description: 'Receives /codex revise PR comments, moves Plane back to In Progress, and notifies Slack that Codex should revise the PR branch.',
   },
 ];
 
