@@ -1,0 +1,122 @@
+{
+  "name": "Plane Ready to GitHub Issue",
+  "version": 1,
+  "runtime": "Hostinger n8n",
+  "purpose": "Create one GitHub issue when a Plane task is moved to Ready, then write the GitHub link back to Plane.",
+  "trigger": {
+    "type": "webhook",
+    "source": "Plane",
+    "path": "/webhook/plane-ready",
+    "method": "POST",
+    "security": {
+      "required": true,
+      "recommended": "Use a Plane webhook secret header and reject requests where the header is missing or incorrect."
+    }
+  },
+  "credentials": [
+    "Plane API credential in n8n",
+    "GitHub API credential in n8n",
+    "Optional Slack credential in n8n"
+  ],
+  "environment": {
+    "GITHUB_OWNER": "GitHub repository owner or organization",
+    "GITHUB_REPO": "GitHub repository name",
+    "PLANE_WORKSPACE_SLUG": "Plane workspace slug",
+    "PLANE_READY_STATE_NAME": "Ready",
+    "SLACK_QUEUE_CHANNEL": "Optional Slack channel for queued work"
+  },
+  "nodes": [
+    {
+      "id": "plane_webhook",
+      "type": "Webhook",
+      "name": "Receive Plane task update",
+      "notes": "Receives Plane issue update events from the cloud Plane webhook."
+    },
+    {
+      "id": "verify_plane_webhook",
+      "type": "IF",
+      "name": "Verify webhook secret",
+      "condition": "Header secret matches n8n credential or static workflow variable.",
+      "on_false": "Respond 401 and stop."
+    },
+    {
+      "id": "normalize_plane_payload",
+      "type": "Set or Code",
+      "name": "Normalize Plane payload",
+      "outputs": {
+        "plane_issue_id": "Issue UUID from Plane payload",
+        "plane_issue_key": "Human readable issue key if available",
+        "plane_title": "Issue title",
+        "plane_description": "Issue description",
+        "plane_state": "Current state name",
+        "plane_url": "Cloud Plane issue URL",
+        "existing_github_issue_url": "GitHub issue URL custom property or parsed from comments"
+      }
+    },
+    {
+      "id": "ready_filter",
+      "type": "IF",
+      "name": "State is Ready",
+      "condition": "plane_state equals PLANE_READY_STATE_NAME",
+      "on_false": "Respond 204 with no action."
+    },
+    {
+      "id": "dedupe_existing_link",
+      "type": "IF",
+      "name": "No existing GitHub issue link",
+      "condition": "existing_github_issue_url is empty",
+      "on_false": "Respond 200 with existing GitHub issue URL."
+    },
+    {
+      "id": "search_github_issue",
+      "type": "GitHub or HTTP Request",
+      "name": "Search existing GitHub issue",
+      "request": "GET /search/issues?q=repo:{owner}/{repo}+type:issue+in:body+{plane_issue_id}",
+      "on_error": "Notify Slack if configured, add Plane comment if possible, respond 502."
+    },
+    {
+      "id": "create_github_issue",
+      "type": "GitHub or HTTP Request",
+      "name": "Create GitHub issue",
+      "request": "POST /repos/{owner}/{repo}/issues",
+      "body_template_ref": "templates.github_issue_body",
+      "labels": [
+        "plane",
+        "codex-ready",
+        "automation"
+      ],
+      "on_error": "Notify Slack if configured, add Plane comment if possible, respond 502."
+    },
+    {
+      "id": "update_plane_with_issue",
+      "type": "HTTP Request",
+      "name": "Update Plane with GitHub issue link",
+      "request": "Use Plane API to add a comment and/or set a GitHub issue custom field.",
+      "on_error": "Notify Slack; do not retry GitHub issue creation."
+    },
+    {
+      "id": "optional_slack_queue_notice",
+      "type": "Slack",
+      "name": "Notify Slack work is queued",
+      "optional": true,
+      "message_template_ref": "templates.slack_queue_message"
+    },
+    {
+      "id": "respond_success",
+      "type": "Respond to Webhook",
+      "name": "Return GitHub issue URL",
+      "status": 200
+    }
+  ],
+  "templates": {
+    "github_issue_body": "## Plane Task\n- Plane URL: {{plane_url}}\n- Plane ID: {{plane_issue_id}}\n- Plane Key: {{plane_issue_key}}\n\n## Goal\n{{plane_title}}\n\n## Details\n{{plane_description}}\n\n## Acceptance Criteria\n- Implement the requested change.\n- Add or update validation appropriate to the change.\n- Open a GitHub PR against main.\n- Include summary, tests, risks, and next steps in the PR.\n\n## Codex Instructions\n- Create a feature branch; do not commit directly to main.\n- Build and test locally.\n- Do not deploy from Codex.\n- Keep secrets out of files and logs.\n- Open a PR when ready for review.\n\n## Automation Metadata\nplane_issue_id: {{plane_issue_id}}\nplane_url: {{plane_url}}",
+    "slack_queue_message": "Plane task queued for Codex\nPlane: {{plane_url}}\nGitHub Issue: {{github_issue_url}}\nNext: Codex should build through a branch and PR."
+  },
+  "safe_failure_handling": [
+    "Never create a second GitHub issue if a Plane issue already has a GitHub URL.",
+    "Search GitHub by Plane issue ID before creating a new issue.",
+    "On GitHub API failure, leave Plane in Ready and add a failure comment when possible.",
+    "On Plane update failure after GitHub issue creation, notify Slack and return the GitHub issue URL for manual repair.",
+    "Do not include API tokens or webhook secrets in Slack or Plane comments."
+  ]
+}

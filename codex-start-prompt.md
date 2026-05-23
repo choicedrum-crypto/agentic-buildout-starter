@@ -22,8 +22,8 @@ Build in phases:
 1. Validate and improve repo structure.
 2. Implement GitHub Actions PR checks.
 3. Implement deploy-after-merge workflow placeholder with Slack notification.
-4. Create n8n workflow JSON/spec for Plane Ready → GitHub issue.
-5. Create n8n workflow JSON/spec for GitHub PR → Slack review message.
-6. Create n8n workflow JSON/spec for deployment result → Plane/Slack status update.
+4. Create n8n workflow JSON/spec for Plane Ready to GitHub issue.
+5. Create n8n workflow JSON/spec for GitHub PR to Slack review message.
+6. Create n8n workflow JSON/spec for deployment result to Plane/Slack status update.
 7. Add setup documentation and testing checklist.
 8. Open a PR with a summary, risks, and next steps.

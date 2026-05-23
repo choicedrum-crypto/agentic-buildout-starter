@@ -1,0 +1,108 @@
+{
+  "name": "Deployment Result to Plane and Slack",
+  "version": 1,
+  "runtime": "Hostinger n8n",
+  "purpose": "Update Plane and Slack after the GitHub Actions deploy-after-merge workflow finishes.",
+  "trigger": {
+    "type": "webhook",
+    "source": "GitHub",
+    "path": "/webhook/github-deploy-result",
+    "events": [
+      "workflow_run"
+    ],
+    "workflow_names": [
+      "Deploy After Merge"
+    ],
+    "security": {
+      "required": true,
+      "recommended": "Validate X-Hub-Signature-256 using the GitHub webhook secret stored in n8n credentials."
+    }
+  },
+  "credentials": [
+    "GitHub API credential in n8n",
+    "Plane API credential in n8n",
+    "Slack credential in n8n"
+  ],
+  "nodes": [
+    {
+      "id": "github_workflow_webhook",
+      "type": "Webhook",
+      "name": "Receive GitHub workflow_run event"
+    },
+    {
+      "id": "verify_github_signature",
+      "type": "Code or IF",
+      "name": "Verify GitHub webhook signature",
+      "on_false": "Respond 401 and stop."
+    },
+    {
+      "id": "filter_completed_deploy",
+      "type": "IF",
+      "name": "Deploy workflow completed",
+      "condition": "workflow_run.name equals Deploy After Merge and workflow_run.status equals completed",
+      "on_false": "Respond 204."
+    },
+    {
+      "id": "extract_deploy_context",
+      "type": "Set or Code",
+      "name": "Extract deployment context",
+      "outputs": {
+        "conclusion": "workflow_run.conclusion",
+        "run_url": "workflow_run.html_url",
+        "head_sha": "workflow_run.head_sha",
+        "repository": "repository.full_name",
+        "plane_issue_id": "Plane issue ID recovered from merged PR body, issue body, or commit metadata"
+      }
+    },
+    {
+      "id": "find_merged_pr",
+      "type": "GitHub or HTTP Request",
+      "name": "Find merged PR for deployment SHA",
+      "request": "GET /repos/{owner}/{repo}/commits/{head_sha}/pulls",
+      "on_error": "Continue with PR context unavailable."
+    },
+    {
+      "id": "resolve_plane_issue",
+      "type": "Code or HTTP Request",
+      "name": "Resolve Plane task from PR or issue metadata",
+      "on_error": "Continue with Slack-only notification."
+    },
+    {
+      "id": "update_plane_success",
+      "type": "HTTP Request",
+      "name": "Move Plane task to Done",
+      "condition": "conclusion equals success and plane_issue_id exists",
+      "request": "Use Plane API to move task to Done and add deployment run link."
+    },
+    {
+      "id": "update_plane_failure",
+      "type": "HTTP Request",
+      "name": "Move Plane task to Blocked or Failed",
+      "condition": "conclusion is not success and plane_issue_id exists",
+      "request": "Use Plane API to move task to Blocked/Failed and add deployment run link."
+    },
+    {
+      "id": "send_slack_deploy_result",
+      "type": "Slack",
+      "name": "Send deployment result",
+      "message_template_ref": "templates.slack_deploy_message",
+      "on_error": "Respond 502 so GitHub webhook delivery can be retried."
+    },
+    {
+      "id": "respond_success",
+      "type": "Respond to Webhook",
+      "name": "Return deployment sync result",
+      "status": 200
+    }
+  ],
+  "templates": {
+    "slack_deploy_message": "Deployment {{deployment_status}}\nRepo: {{repository}}\nCommit: {{head_sha}}\nRun: {{run_url}}\nPlane: {{plane_url}}\nPlane status update: {{plane_update_status}}"
+  },
+  "safe_failure_handling": [
+    "Only process completed Deploy After Merge workflow runs.",
+    "If Plane cannot be resolved, still notify Slack with the deployment result and run URL.",
+    "If Plane update fails, Slack message must include manual repair instructions.",
+    "Never deploy from n8n; n8n only reacts to GitHub Actions deployment results.",
+    "Use GitHub webhook retries for transient Slack or Plane API failures."
+  ]
+}
