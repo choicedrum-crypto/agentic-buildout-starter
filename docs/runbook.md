@@ -18,12 +18,13 @@ plane_url: <Plane task URL>
 ## Review and merge
 
 1. Confirm PR Checks pass.
-2. Confirm Slack receives the PR review message.
-3. Merge the PR in GitHub.
-4. Confirm `Deploy After Merge` runs from `main`.
-5. Confirm Slack receives the deploy result.
-6. Confirm Plane moves to `Done`.
-7. Confirm Plane receives a deployment comment with the GitHub Actions run URL, commit SHA, and PR URL.
+2. Confirm Plane moves to `Review`.
+3. Confirm Slack receives the PR review message.
+4. Merge the PR in GitHub.
+5. Confirm `Deploy After Merge` runs from `main`.
+6. Confirm Slack receives the deploy result.
+7. Confirm Plane moves to `Done`.
+8. Confirm Plane receives a deployment comment with the GitHub Actions run URL, commit SHA, and PR URL.
 
 If the deployment comment is missing but Slack and the Plane state update succeed, open the deployment workflow in n8n and confirm the `Comment on Plane with Deployment Result` node is bound to the existing `Plane Main` HTTP Header Auth credential. The node is intentionally placed after `Update Plane Status`, so the core status update and Slack notification remain the primary signal while credential binding is repaired.
 

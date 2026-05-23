@@ -25,9 +25,10 @@ Use this checklist before trusting the automation with real work.
 - Open a draft or test PR linked to a generated issue.
 - Confirm Plane-backed PRs include `plane_issue_id: <uuid>` in the PR body.
 - Confirm GitHub webhook signature validation rejects bad signatures.
+- Confirm n8n moves linked Plane tasks to `Review` when a reviewable PR is opened.
+- Confirm Plane receives a PR review link comment when Plane context can be resolved.
 - Confirm Slack receives the PR / merge link.
 - Confirm checks show as pending, passing, failing, or unavailable without breaking the workflow.
-- Confirm Plane receives a PR comment when Plane context can be resolved.
 
 ## Merge and Deploy
 

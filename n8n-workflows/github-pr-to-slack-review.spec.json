@@ -2,7 +2,7 @@
   "name": "GitHub PR to Slack Review",
   "version": 1,
   "runtime": "Hostinger n8n",
-  "purpose": "Notify Slack when a PR is opened, synchronized, or reopened, including the GitHub PR merge link and linked Plane context.",
+  "purpose": "Move linked Plane work to Review and notify Slack when a PR is opened, synchronized, or reopened, including the GitHub PR merge link and linked Plane context.",
   "trigger": {
     "type": "webhook",
     "source": "GitHub",
@@ -42,6 +42,7 @@
         "github_repo": "GitHub repository name",
         "plane_workspace_slug": "Plane workspace slug",
         "plane_project_id": "Plane project ID",
+        "plane_review_state_name": "Review",
         "slack_review_channel": "Slack channel for PR review messages",
         "public_n8n_base_url": "https://n8n.tradecredit.agency"
       }
@@ -69,8 +70,17 @@
         "pr_merge_link": "pull_request.html_url",
         "pr_body": "pull_request.body",
         "issue_url": "First GitHub issue URL found in PR body or branch metadata",
-        "plane_url": "First Plane URL found in PR or linked issue body"
+        "plane_url": "First Plane URL found in PR or linked issue body",
+        "plane_issue_id": "Plane issue UUID parsed from PR body"
       }
+    },
+    {
+      "id": "update_plane_review_state",
+      "type": "HTTP Request",
+      "name": "Move Plane task to Review",
+      "condition": "plane_issue_id exists",
+      "request": "Use Plane API to set the work item state to Review.",
+      "on_error": "Respond 502 so GitHub webhook delivery can retry."
     },
     {
       "id": "fetch_checks",
@@ -91,7 +101,6 @@
       "id": "optional_update_plane_review",
       "type": "HTTP Request",
       "name": "Comment on Plane with PR link",
-      "optional": true,
       "request": "Add Plane comment containing PR URL and current checks status.",
       "on_error": "Continue and include Plane update failure note in Slack."
     },

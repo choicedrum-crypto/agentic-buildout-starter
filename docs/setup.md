@@ -38,7 +38,7 @@ Suggested webhook paths:
 
 ## 4. Plane
 
-1. Create or confirm states named `Ready`, `Done`, and `Blocked` or map the specs to your actual state names.
+1. Create or confirm states named `Ready`, `Review`, `Done`, and `Blocked` or map the specs to your actual state names.
 2. Add a custom field for the GitHub issue URL if available.
 3. Configure a Plane webhook for issue update events.
 4. Send the webhook to the Hostinger n8n Plane Ready workflow URL.
