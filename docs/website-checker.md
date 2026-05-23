@@ -10,6 +10,12 @@ Spec: `n8n-workflows/website-checker.spec.json`
 
 The workflow runs every 30 minutes in Hostinger n8n. It checks the configured website URL, follows redirects, and posts to Slack only when the site is down or the request fails.
 
+The workflow also includes a manual test trigger and a test webhook so operators can verify the check without waiting for the next scheduled run:
+
+```text
+https://n8n.tradecredit.agency/webhook/website-checker-test
+```
+
 ## Defaults
 
 - URL: `http://www.tciallc.com/`
