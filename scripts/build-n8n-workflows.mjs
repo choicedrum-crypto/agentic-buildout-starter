@@ -416,6 +416,7 @@ const success = run.conclusion === 'success';
 const text = JSON.stringify(body);
 const planeIssueId = text.match(/plane_issue_id:\\\\s*([A-Za-z0-9_-]+)/)?.[1] || '';
 const planeUrl = text.match(/https?:\\\\/\\\\/[^\\\\s)"]*plane[^\\\\s)"]*/i)?.[0] || '';
+const prNumber = run.pull_requests?.[0]?.number || run.display_title?.match(/\\\\(#(\\\\d+)\\\\)/)?.[1] || run.head_commit?.message?.match(/\\\\(#(\\\\d+)\\\\)/)?.[1] || '';
 const stateId = success ? config.plane_done_state_id : config.plane_failed_state_id;
 const message = [
   'Deployment ' + (success ? 'succeeded' : 'failed'),
@@ -425,7 +426,7 @@ const message = [
   'Plane: ' + (planeUrl || planeIssueId || 'not resolved'),
   'Plane status update: ' + (planeIssueId ? 'queued' : 'skipped, Plane task not resolved')
 ].join('\\\\n');
-return { json: { ...$json, config, completed, success, deployment_status: success ? 'succeeded' : 'failed', run_url: run.html_url, head_sha: run.head_sha, repository: body.repository?.full_name, plane_issue_id: planeIssueId, plane_url: planeUrl, plane_state_id: stateId, slack_message: message } };
+return { json: { ...$json, config, completed, success, deployment_status: success ? 'succeeded' : 'failed', run_url: run.html_url, head_sha: run.head_sha, repository: body.repository?.full_name, pr_number: String(prNumber || ''), plane_issue_id: planeIssueId, plane_url: planeUrl, plane_state_id: stateId, slack_message: message } };
 \`
     }
   }
@@ -447,6 +448,70 @@ const hasPlane = ifElse({
     name: 'Plane Task Resolved?',
     parameters: {
       conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ $json.plane_issue_id }}'), operator: { type: 'string', operation: 'notEmpty' } }], combinator: 'and' }
+    }
+  }
+});
+
+const hasPrNumber = ifElse({
+  version: 2.3,
+  config: {
+    name: 'Merged PR Resolved?',
+    parameters: {
+      conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ $json.pr_number }}'), operator: { type: 'string', operation: 'notEmpty' } }], combinator: 'and' }
+    }
+  }
+});
+
+const fetchMergedPr = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Fetch Merged PR',
+    parameters: {
+      method: 'GET',
+      url: expr('{{ "https://api.github.com/repos/" + $json.config.github_owner + "/" + $json.config.github_repo + "/pulls/" + $json.pr_number }}'),
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Accept', value: 'application/vnd.github+json' }] }
+    }
+  }
+});
+
+const resolvePlaneContext = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Resolve Plane Context',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const base = $('Extract Deployment Context').item.json;
+const pr = $json || {};
+const text = [
+  base.plane_issue_id || '',
+  base.plane_url || '',
+  base.body?.workflow_run?.display_title || '',
+  base.body?.workflow_run?.head_commit?.message || '',
+  pr.title || '',
+  pr.body || '',
+].join('\\\\n');
+const planeIssueId =
+  base.plane_issue_id ||
+  text.match(/plane_issue_id:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] ||
+  text.match(/Plane ID:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] ||
+  '';
+const planeUrl = base.plane_url || text.match(/https?:\\\\/\\\\/[^\\\\s)"]*plane[^\\\\s)"]*/i)?.[0] || '';
+const message = [
+  'Deployment ' + (base.success ? 'succeeded' : 'failed'),
+  'Repo: ' + (base.repository || base.config.github_owner + '/' + base.config.github_repo),
+  'Commit: ' + (base.head_sha || 'unknown'),
+  'Run: ' + (base.run_url || 'not provided'),
+  'PR: ' + (pr.html_url || (base.pr_number ? 'https://github.com/' + base.config.github_owner + '/' + base.config.github_repo + '/pull/' + base.pr_number : 'not resolved')),
+  'Plane: ' + (planeUrl || planeIssueId || 'not resolved'),
+  'Plane status update: ' + (planeIssueId ? 'queued' : 'skipped, Plane task not resolved')
+].join('\\\\n');
+return { json: { ...base, plane_issue_id: planeIssueId, plane_url: planeUrl, slack_message: message } };
+\`
     }
   }
 });
@@ -517,9 +582,13 @@ export default workflow('deployment-result-plane-slack', 'Deployment Result to P
   .to(config)
   .to(extract)
   .to(isCompletedDeploy
-    .onTrue(hasPlane
-      .onTrue(updatePlane.to(restoreDeployMessage).to(slackDeploy).to(respondSynced))
-      .onFalse(slackDeploy.to(respondSynced)))
+    .onTrue(hasPrNumber
+      .onTrue(fetchMergedPr.to(resolvePlaneContext).to(hasPlane
+        .onTrue(updatePlane.to(restoreDeployMessage).to(slackDeploy).to(respondSynced))
+        .onFalse(slackDeploy.to(respondSynced))))
+      .onFalse(resolvePlaneContext.to(hasPlane
+        .onTrue(updatePlane.to(restoreDeployMessage).to(slackDeploy).to(respondSynced))
+        .onFalse(slackDeploy.to(respondSynced)))))
     .onFalse(respondIgnored));
 `;
 

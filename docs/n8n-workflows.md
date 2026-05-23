@@ -62,10 +62,15 @@ Trigger:
 
 Core logic:
 1. Continue only when the deploy workflow has completed.
-2. Resolve the merged PR and linked Plane task from the deployment commit.
+2. Resolve the merged PR and linked Plane task from the deployment commit and PR body.
 3. If deployment succeeded, move Plane to `Done` and add the workflow run link.
 4. If deployment failed, move Plane to `Blocked` or `Failed` and add the run link.
 5. Notify Slack with the final deployment result.
+
+PR body handoff:
+- Codex PRs created from Plane tasks should include `plane_issue_id: <uuid>`.
+- Include the Plane URL when available.
+- The deployment-result workflow uses this metadata after merge to update the correct Plane task.
 
 Safe behavior:
 - If Plane cannot be resolved, still notify Slack with the GitHub Actions run URL.

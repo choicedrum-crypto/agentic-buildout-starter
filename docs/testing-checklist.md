@@ -23,6 +23,7 @@ Use this checklist before trusting the automation with real work.
 ## GitHub PR to Slack
 
 - Open a draft or test PR linked to a generated issue.
+- Confirm Plane-backed PRs include `plane_issue_id: <uuid>` in the PR body.
 - Confirm GitHub webhook signature validation rejects bad signatures.
 - Confirm Slack receives the PR / merge link.
 - Confirm checks show as pending, passing, failing, or unavailable without breaking the workflow.
@@ -33,6 +34,7 @@ Use this checklist before trusting the automation with real work.
 - Merge a test PR.
 - Confirm `Deploy After Merge` starts from `main`.
 - Confirm the deploy placeholder does not run from Codex or n8n.
+- Confirm deployment result resolves the merged PR's `plane_issue_id` when present.
 - Confirm Slack receives deployment success or failure.
 - Confirm n8n moves Plane to `Done` on success.
 - Confirm n8n moves Plane to `Blocked` or `Failed` on failure.

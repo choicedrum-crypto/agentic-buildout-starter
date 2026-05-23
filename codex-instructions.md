@@ -6,6 +6,7 @@ Rules:
 - Create a branch for every implementation task.
 - Never commit directly to `main`.
 - Open a pull request for all changes.
+- If the work came from Plane, include `plane_issue_id: <uuid>` and the Plane URL in the PR body.
 - Do not deploy directly from Codex.
 - Use GitHub Actions for tests/checks/deployments.
 - Use n8n only for orchestration, Slack notifications, Plane sync, and webhooks.
