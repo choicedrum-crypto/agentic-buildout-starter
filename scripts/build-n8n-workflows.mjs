@@ -442,7 +442,7 @@ const commentPlaneReview = node({
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
-      jsonBody: expr('{{ { comment_html: "<p>PR ready for review: " + $("Extract PR Review Context").item.json.pr_url + "</p>", comment_json: {}, access: "INTERNAL", external_source: "github_pr", external_id: String($("Extract PR Review Context").item.json.pr_url || "") } }}')
+      jsonBody: expr('{{ { comment_html: "<p>PR ready for review: " + $("Extract PR Review Context").item.json.pr_url + "</p>", comment_json: {}, access: "INTERNAL", external_source: "github_pr", external_id: String(($("Extract PR Review Context").item.json.pr_url || "pr-review") + "-" + Date.now()) } }}')
     }
   }
 });
@@ -761,6 +761,27 @@ export default workflow('github-pr-feedback-revision-queue', 'GitHub PR Feedback
 const websiteCheckerWorkflow = `
 import { workflow, node, trigger, ifElse, expr } from '@n8n/workflow-sdk';
 
+const manual = trigger({
+  type: 'n8n-nodes-base.manualTrigger',
+  version: 1,
+  config: {
+    name: 'Manual Test Trigger'
+  }
+});
+
+const testWebhook = trigger({
+  type: 'n8n-nodes-base.webhook',
+  version: 2.1,
+  config: {
+    name: 'Website Checker Test Webhook',
+    parameters: {
+      httpMethod: 'POST',
+      path: 'website-checker-test',
+      responseMode: 'responseNode'
+    }
+  }
+});
+
 const schedule = trigger({
   type: 'n8n-nodes-base.scheduleTrigger',
   version: 1.2,
@@ -816,14 +837,12 @@ let result = {
   error: '',
 };
 
-const controller = new AbortController();
-const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
 try {
-  const response = await fetch(url, {
+  const response = await this.helpers.httpRequest({
     method: 'GET',
-    redirect: 'follow',
-    signal: controller.signal,
+    url,
+    timeout: timeoutMs,
+    returnFullResponse: true,
     headers: {
       'user-agent': 'agentic-buildout-starter/n8n-website-checker',
     },
@@ -831,11 +850,11 @@ try {
 
   result = {
     ...result,
-    final_url: response.url,
-    status: response.status,
-    status_text: response.statusText,
+    final_url: response.request?.uri?.href || url,
+    status: response.statusCode,
+    status_text: response.statusMessage,
     duration_ms: Date.now() - startedAt,
-    ok: response.status >= 200 && response.status < 400,
+    ok: response.statusCode >= 200 && response.statusCode < 400,
   };
 } catch (error) {
   result = {
@@ -843,8 +862,6 @@ try {
     duration_ms: Date.now() - startedAt,
     error: error instanceof Error ? error.message : String(error),
   };
-} finally {
-  clearTimeout(timeout);
 }
 
 const slackMessage = [
@@ -890,11 +907,43 @@ const slackAlert = node({
   }
 });
 
+const respondOk = node({
+  type: 'n8n-nodes-base.respondToWebhook',
+  version: 1.5,
+  config: {
+    name: 'Respond Website Up',
+    parameters: {
+      respondWith: 'json',
+      responseBody: expr('{{ { ok: true, action: "website_check_passed", website_url: $json.website_url, final_url: $json.final_url, status: $json.status, duration_ms: $json.duration_ms } }}'),
+      options: { responseCode: 200 }
+    }
+  }
+});
+
+const respondAlerted = node({
+  type: 'n8n-nodes-base.respondToWebhook',
+  version: 1.5,
+  config: {
+    name: 'Respond Website Alerted',
+    parameters: {
+      respondWith: 'json',
+      responseBody: expr('{{ { ok: false, action: "website_check_failed", website_url: $json.website_url, status: $json.status, error: $json.error } }}'),
+      options: { responseCode: 200 }
+    }
+  }
+});
+
 export default workflow('website-checker', 'Website Checker')
+  .add(manual)
+  .to(config)
+  .add(testWebhook)
+  .to(config)
   .add(schedule)
   .to(config)
   .to(checkWebsite)
-  .to(websiteUp.onFalse(slackAlert));
+  .to(websiteUp
+    .onTrue(respondOk)
+    .onFalse(slackAlert.to(respondAlerted)));
 `;
 
 const deploymentWorkflow = `
