@@ -1857,6 +1857,7 @@ let workflows = [
     workflowId: 'jvJm59fD1uO8gBfD',
     code: emailCategorizerWorkflow,
     description: 'Dry-run-first Outlook Eisenhower classifier workflow with safe test webhook and production activation gates.',
+    verifyContains: ['dbradley@tciallc.com', 'Get Unread Uncategorized Outlook Metadata', 'dbhub_local_llm'],
   },
 ];
 
@@ -1901,6 +1902,7 @@ for (const item of workflows) {
   }
 
   if (existing) {
+    await tool('unpublish_workflow', { workflowId: existing.id });
     await tool('update_workflow', {
       workflowId: existing.id,
       code: item.code,
@@ -1908,6 +1910,14 @@ for (const item of workflows) {
       description: item.description,
     });
     await tool('publish_workflow', { workflowId: existing.id });
+    if (item.verifyContains?.length) {
+      const details = await tool('get_workflow_details', { workflowId: existing.id });
+      const text = JSON.stringify(getStructuredContent(details));
+      const missing = item.verifyContains.filter((marker) => !text.includes(marker));
+      if (missing.length) {
+        throw new Error(`Published ${item.name} is missing expected markers: ${missing.join(', ')}`);
+      }
+    }
     console.log(`updated ${item.name} (${existing.id})`);
   } else {
     const created = await tool('create_workflow_from_code', {
