@@ -51,6 +51,7 @@ Use this checklist before trusting the automation with real work.
 - Confirm Slack receives deployment success or failure.
 - Confirm n8n moves Plane to `Done` on success.
 - Confirm n8n comments on and closes the linked GitHub source issue only after successful deploy.
+- Confirm n8n does not close a GitHub issue when the deploy PR lacks Plane metadata.
 - Confirm n8n moves Plane to `Blocked` or `Failed` on failure.
 - Confirm failed deploys do not close the linked GitHub source issue.
 - Confirm Plane receives a deployment comment with the GitHub Actions run URL, commit SHA, status, and PR URL.
