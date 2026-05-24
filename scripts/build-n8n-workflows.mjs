@@ -1858,6 +1858,7 @@ let workflows = [
     code: emailCategorizerWorkflow,
     description: 'Dry-run-first Outlook Eisenhower classifier workflow with safe test webhook and production activation gates.',
     verifyContains: ['dbradley@tciallc.com', 'Get Unread Uncategorized Outlook Metadata', 'dbhub_local_llm'],
+    skipMcpUpdate: true,
   },
 ];
 
@@ -1878,6 +1879,11 @@ await mcp('initialize', {
 });
 
 for (const item of workflows) {
+  if (item.skipMcpUpdate) {
+    console.log(`skipped ${item.name} (${item.workflowId}) - managed by create-and-swap until MCP update supports this workflow`);
+    continue;
+  }
+
   const validation = await tool('validate_workflow', { code: item.code });
   const validationContent = getStructuredContent(validation);
   if (validationContent.valid === false) {
