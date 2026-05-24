@@ -1081,7 +1081,7 @@ export default workflow('website-checker', 'Website Checker')
 `;
 
 const emailCategorizerWorkflow = `
-import { workflow, node, trigger, ifElse, expr } from '@n8n/workflow-sdk';
+import { workflow, node, trigger, newCredential, ifElse, expr } from '@n8n/workflow-sdk';
 
 const manual = trigger({
   type: 'n8n-nodes-base.manualTrigger',
@@ -1114,18 +1114,91 @@ const config = node({
       includeOtherFields: true,
       assignments: {
         assignments: [
-          { id: 'config-object', name: 'config', type: 'object', value: expr('{{ { dry_run: true, enable_schedule_processing: false, enable_outlook_patch: false, batch_limit: 25, tier3_confidence_threshold: 0.65, slack_exception_channel: "#workflow-builder", audit_table: "inbox_classifications", ms_user_email: "Daniel mailbox address", classifier_mount_path: "/data/classifier", outlook_category_map: { Q1: "Q1: Do Now", Q2: "Q2: Schedule", Q3: "Q3: Delegate", Q4: "Q4: Eliminate", QR: "QR: Quarantine" }, readiness: { outlook_credential: "Microsoft Outlook account", postgres_credential: "pending", anthropic_credential_or_env: "pending" } } }}') }
+          { id: 'config-object', name: 'config', type: 'object', value: expr('{{ { dry_run: true, enable_schedule_processing: false, enable_outlook_patch: false, batch_limit: 25, tier3_confidence_threshold: 0.65, slack_exception_channel: "#workflow-builder", audit_table: "inbox_classifications", ms_user_email: "dbradley@tciallc.com", classifier_mount_path: "/data/classifier", tier3_provider: "dbhub_local_llm", local_llm_base_url: "http://dbhub:11434", local_llm_model: "llama3.1:8b", enable_tier3_local_llm: false, outlook_category_map: { Q1: "Q1: Do Now", Q2: "Q2: Schedule", Q3: "Q3: Delegate", Q4: "Q4: Eliminate", QR: "QR: Quarantine" }, readiness: { outlook_credential: "Microsoft Outlook account", postgres_credential: "pending", local_llm: "pending endpoint/model confirmation" } } }}') }
         ]
       }
     }
   }
 });
 
-const prepareMessages = node({
+const listOutlookCategories = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'List Outlook Categories',
+    credentials: { microsoftOAuth2Api: newCredential('Microsoft Outlook account') },
+    parameters: {
+      method: 'GET',
+      url: expr('{{ "https://graph.microsoft.com/v1.0/users/" + $json.config.ms_user_email + "/outlook/masterCategories" }}'),
+      authentication: 'predefinedCredentialType',
+      nodeCredentialType: 'microsoftOAuth2Api',
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Accept', value: 'application/json' }] }
+    }
+  }
+});
+
+const prepareOutlookRun = node({
   type: 'n8n-nodes-base.code',
   version: 2,
   config: {
-    name: 'Prepare Dry Run Messages',
+    name: 'Prepare Outlook Run',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const config = $('CONFIG').item.json.config || {};
+let webhook = {};
+try {
+  webhook = $('Email Categorizer Test Webhook').item.json || {};
+} catch {}
+const body = webhook.body || {};
+const liveCategories = Array.isArray($json.value) ? $json.value : [];
+const liveNames = liveCategories.map((item) => item.displayName || item.name || '').filter(Boolean);
+const expected = Object.values(config.outlook_category_map || {});
+const missing = expected.filter((label) => !liveNames.includes(label));
+const readinessErrors = [];
+if (missing.length) {
+  readinessErrors.push('Missing Outlook categories: ' + missing.join(', '));
+}
+if (config.enable_outlook_patch) {
+  readinessErrors.push('Live Outlook PATCH is still blocked by workflow design; keep enable_outlook_patch=false until dry-run audit is reviewed.');
+}
+if (config.enable_tier3_local_llm !== true) {
+  readinessErrors.push('DBHub local LLM Tier 3 is selected but disabled until endpoint/model are confirmed.');
+}
+readinessErrors.push('Postgres audit credential is not configured in this workflow yet.');
+
+return {
+  json: {
+    config,
+    body,
+    live_category_names: liveNames,
+    category_map_ok: missing.length === 0,
+    readiness_errors: readinessErrors,
+    mode: Array.isArray(body.messages) ? 'webhook_dry_run' : 'outlook_metadata_dry_run'
+  }
+};
+\`
+    }
+  }
+});
+
+const useProvidedMessages = ifElse({
+  version: 2.3,
+  config: {
+    name: 'Use Provided Test Messages?',
+    parameters: {
+      conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ String(Array.isArray($json.body?.messages)) }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'true' }], combinator: 'and' }
+    }
+  }
+});
+
+const prepareProvidedMessages = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Prepare Provided Messages',
     parameters: {
       mode: 'runOnceForEachItem',
       language: 'javaScript',
@@ -1172,30 +1245,59 @@ const manualSample = [
   }
 ];
 
-const isSchedule = !$json.body && !$json.headers;
-if (isSchedule && !config.enable_schedule_processing) {
-  return {
-    json: {
-      ...$json,
-      mode: 'schedule_noop',
-      messages: [],
-      readiness_errors: ['Schedule processing is disabled in CONFIG.enable_schedule_processing.'],
-      note: 'Dry-run test webhook is active; scheduled mailbox processing is gated off.'
-    }
-  };
-}
-
 const messages = fromWebhook.length ? fromWebhook : manualSample;
 return {
   json: {
     ...$json,
     mode: fromWebhook.length ? 'webhook_dry_run' : 'sample_dry_run',
-    messages: messages.slice(0, Number(config.batch_limit || 25)),
-    readiness_errors: [
-      'Postgres audit credential is not configured in this workflow yet.',
-      'Anthropic Tier 3 credential/env is not configured in this workflow yet.',
-      'Live Outlook PATCH is disabled by CONFIG.enable_outlook_patch=false.'
-    ]
+    messages: messages.slice(0, Number(config.batch_limit || 25))
+  }
+};
+\`
+    }
+  }
+});
+
+const getUnreadUncategorized = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Get Unread Uncategorized Outlook Metadata',
+    credentials: { microsoftOAuth2Api: newCredential('Microsoft Outlook account') },
+    parameters: {
+      method: 'GET',
+      url: expr('{{ "https://graph.microsoft.com/v1.0/users/" + $json.config.ms_user_email + "/mailFolders/inbox/messages?$top=" + Number($json.config.batch_limit || 25) + "&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime,importance,hasAttachments,categories,isRead&$filter=isRead eq false" }}'),
+      authentication: 'predefinedCredentialType',
+      nodeCredentialType: 'microsoftOAuth2Api',
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Accept', value: 'application/json' }] }
+    }
+  }
+});
+
+const normalizeOutlookMessages = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Normalize Outlook Metadata',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const prepared = $('Prepare Outlook Run').item.json;
+const config = prepared.config || {};
+const raw = Array.isArray($json.value) ? $json.value : [];
+const messages = raw
+  .filter((message) => !Array.isArray(message.categories) || message.categories.length === 0)
+  .slice(0, Number(config.batch_limit || 25));
+
+return {
+  json: {
+    ...prepared,
+    mode: 'outlook_metadata_dry_run',
+    fetched_unread_count: raw.length,
+    skipped_already_categorized_count: raw.length - messages.length,
+    messages
   }
 };
 \`
@@ -1235,7 +1337,7 @@ function classify(message) {
   if (planning) return { quadrant: 'Q2', tier_fired: 1, confidence: 0.78, reason: 'Planning/scheduling language indicates important non-urgent work.' };
   if (delegate) return { quadrant: 'Q3', tier_fired: 1, confidence: 0.74, reason: 'Review/delegation language indicates candidate for delegation.' };
   if (lowValue) return { quadrant: 'Q4', tier_fired: 1, confidence: 0.76, reason: 'Promotional or digest metadata indicates low-value work.' };
-  return { quadrant: 'Q2', tier_fired: 0, confidence: 0.45, reason: 'No deterministic rule matched; would require Tier 3 in production.', needs_tier3: true };
+  return { quadrant: 'Q2', tier_fired: 0, confidence: 0.45, reason: 'No deterministic rule matched; DBHub local LLM Tier 3 should review this metadata once enabled.', needs_tier3: true };
 }
 
 const results = ($json.messages || []).map((message) => {
@@ -1255,6 +1357,8 @@ const results = ($json.messages || []).map((message) => {
     tier_fired: classification.tier_fired,
     confidence: classification.confidence,
     needs_tier3: Boolean(classification.needs_tier3),
+    tier3_provider: classification.needs_tier3 ? config.tier3_provider : '',
+    tier3_status: classification.needs_tier3 ? (config.enable_tier3_local_llm ? 'pending_local_llm_call' : 'skipped_local_llm_disabled') : 'not_needed',
     dry_run: Boolean(config.dry_run),
     would_patch_outlook: Boolean(!config.dry_run && config.enable_outlook_patch),
     applied_ok: false,
@@ -1279,6 +1383,10 @@ return {
     exception_count: exceptions.length,
     has_exception: exceptions.length > 0,
     slack_message: slackMessage,
+    live_category_names: $json.live_category_names || [],
+    category_map_ok: Boolean($json.category_map_ok),
+    fetched_unread_count: Number($json.fetched_unread_count || 0),
+    skipped_already_categorized_count: Number($json.skipped_already_categorized_count || 0),
     audit_status: 'skipped_postgres_not_configured',
     outlook_patch_status: config.dry_run ? 'skipped_dry_run' : 'disabled_until_enable_outlook_patch_true'
   }
@@ -1332,7 +1440,11 @@ const restoreDryRunResult = node({
           { id: 'exception-count', name: 'exception_count', type: 'number', value: expr('{{ $("Classify Metadata Dry Run").item.json.exception_count }}') },
           { id: 'audit-status', name: 'audit_status', type: 'string', value: expr('{{ $("Classify Metadata Dry Run").item.json.audit_status }}') },
           { id: 'outlook-patch-status', name: 'outlook_patch_status', type: 'string', value: expr('{{ $("Classify Metadata Dry Run").item.json.outlook_patch_status }}') },
-          { id: 'readiness-errors', name: 'readiness_errors', type: 'array', value: expr('{{ $("Classify Metadata Dry Run").item.json.readiness_errors }}') }
+          { id: 'readiness-errors', name: 'readiness_errors', type: 'array', value: expr('{{ $("Classify Metadata Dry Run").item.json.readiness_errors }}') },
+          { id: 'live-category-names', name: 'live_category_names', type: 'array', value: expr('{{ $("Classify Metadata Dry Run").item.json.live_category_names }}') },
+          { id: 'category-map-ok', name: 'category_map_ok', type: 'boolean', value: expr('{{ $("Classify Metadata Dry Run").item.json.category_map_ok }}') },
+          { id: 'fetched-unread-count', name: 'fetched_unread_count', type: 'number', value: expr('{{ $("Classify Metadata Dry Run").item.json.fetched_unread_count }}') },
+          { id: 'skipped-categorized-count', name: 'skipped_already_categorized_count', type: 'number', value: expr('{{ $("Classify Metadata Dry Run").item.json.skipped_already_categorized_count }}') }
         ]
       }
     }
@@ -1346,7 +1458,7 @@ const respondDryRun = node({
     name: 'Return Dry Run Result',
     parameters: {
       respondWith: 'json',
-      responseBody: expr('{{ { ok: true, action: "email_categorizer_dry_run", mode: $json.mode, dry_run: $json.config.dry_run, messages: $json.classification_results.length, exception_count: $json.exception_count, audit_status: $json.audit_status, outlook_patch_status: $json.outlook_patch_status, readiness_errors: $json.readiness_errors, results: $json.classification_results } }}'),
+      responseBody: expr('{{ { ok: true, action: "email_categorizer_dry_run", mode: $json.mode, dry_run: $json.config.dry_run, mailbox: $json.config.ms_user_email, category_map_ok: $json.category_map_ok, live_category_names: $json.live_category_names, fetched_unread_count: $json.fetched_unread_count, skipped_already_categorized_count: $json.skipped_already_categorized_count, messages: $json.classification_results.length, exception_count: $json.exception_count, audit_status: $json.audit_status, outlook_patch_status: $json.outlook_patch_status, readiness_errors: $json.readiness_errors, results: $json.classification_results } }}'),
       options: { responseCode: 200 }
     }
   }
@@ -1355,13 +1467,18 @@ const respondDryRun = node({
 export default workflow('email-categorizer', 'Email Categorizer')
   .add(manual)
   .to(config)
+  .to(listOutlookCategories)
+  .to(prepareOutlookRun)
+  .to(useProvidedMessages
+    .onTrue(prepareProvidedMessages.to(classifyMessages).to(hasException
+      .onTrue(slackException.to(restoreDryRunResult).to(respondDryRun))
+      .onFalse(respondDryRun)))
+    .onFalse(getUnreadUncategorized.to(normalizeOutlookMessages).to(classifyMessages).to(hasException
+      .onTrue(slackException.to(restoreDryRunResult).to(respondDryRun))
+      .onFalse(respondDryRun))))
   .add(testWebhook)
   .to(config)
-  .to(prepareMessages)
-  .to(classifyMessages)
-  .to(hasException
-    .onTrue(slackException.to(restoreDryRunResult).to(respondDryRun))
-    .onFalse(respondDryRun));
+  .to(listOutlookCategories);
 `;
 
 const deploymentWorkflow = `
@@ -1737,6 +1854,7 @@ let workflows = [
   },
 ];
 
+const validateOnly = process.argv.includes('--validate-only');
 const onlyIndex = process.argv.indexOf('--only');
 if (onlyIndex !== -1) {
   const requestedName = process.argv[onlyIndex + 1];
@@ -1758,6 +1876,11 @@ for (const item of workflows) {
   if (validationContent.valid === false) {
     console.log(JSON.stringify(validation, null, 2));
     throw new Error(`Validation failed for ${item.name}`);
+  }
+
+  if (validateOnly) {
+    console.log(`validated ${item.name}`);
+    continue;
   }
 
   const exact = await tool('search_workflows', { query: item.name, limit: 20 });

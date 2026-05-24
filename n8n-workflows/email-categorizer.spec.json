@@ -2,10 +2,10 @@
   "name": "Email Categorizer",
   "version": 1,
   "runtime": "Hostinger n8n",
-  "purpose": "Classify unread uncategorized Outlook inbox messages into Eisenhower categories, audit every attempt, and notify Slack only on exceptions.",
-  "status": "deployed_dry_run_test_webhook",
+  "purpose": "Classify unread uncategorized Outlook inbox message metadata into Eisenhower categories, keep Outlook writes disabled, and notify Slack only on exceptions.",
+  "status": "real_outlook_metadata_dry_run_pending_publish",
   "trigger": {
-    "type": "manual and test webhook; schedule gated until production dependencies are ready",
+    "type": "manual and test webhook; schedule gated until audit and live-pilot dependencies are ready",
     "source": "n8n",
     "interval": "Pending production activation",
     "manual": "Manual dry-run validation trigger",
@@ -13,7 +13,7 @@
   },
   "credentials": [
     "Microsoft Outlook OAuth2 credential in n8n",
-    "Anthropic API key stored in n8n credential or VPS environment",
+    "DBHub local LLM endpoint/model for Tier 3 metadata classification",
     "Postgres credential in n8n for classifier audit database",
     "Slack credential in n8n"
   ],
@@ -21,13 +21,17 @@
     "node": "CONFIG",
     "notes": "First workflow node after each trigger. Store shared constants here instead of n8n global variables.",
     "values": {
-      "ms_user_email": "Daniel mailbox address",
+      "ms_user_email": "dbradley@tciallc.com",
       "dry_run": true,
       "batch_limit": 25,
       "tier3_confidence_threshold": 0.65,
       "slack_exception_channel": "#workflow-builder",
       "classifier_mount_path": "/data/classifier",
       "audit_table": "inbox_classifications",
+      "tier3_provider": "dbhub_local_llm",
+      "local_llm_base_url": "http://dbhub:11434",
+      "local_llm_model": "llama3.1:8b",
+      "enable_tier3_local_llm": false,
       "outlook_category_map": {
         "Q1": "Q1: Do Now",
         "Q2": "Q2: Schedule",
@@ -87,7 +91,7 @@
       "id": "get_unread_uncategorized",
       "type": "Microsoft Outlook or HTTP Request",
       "name": "Get Unread Uncategorized Inbox Messages",
-      "request": "GET /me/mailFolders/inbox/messages?$top={{batch_limit}}&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime,importance,hasAttachments,categories&$filter=isRead eq false and categories/any() eq false",
+      "request": "GET /users/{{ms_user_email}}/mailFolders/inbox/messages?$top={{batch_limit}}&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime,importance,hasAttachments,categories,isRead&$filter=isRead eq false, then filter already-categorized messages in workflow code",
       "notes": "Select metadata only. Do not request body, bodyPreview, uniqueBody, or attachments."
     },
     {
@@ -110,15 +114,15 @@
     {
       "id": "claude_tier_3",
       "type": "HTTP Request",
-      "name": "Claude Tier 3 Metadata Classifier",
-      "request": "POST https://api.anthropic.com/v1/messages",
+      "name": "DBHub Local LLM Tier 3 Metadata Classifier",
+      "request": "POST {{local_llm_base_url}}/api/chat or compatible local endpoint",
       "body_safety": "Send sender, recipients, subject, received time, importance, and hasAttachments only."
     },
     {
       "id": "merge_tier_3",
       "type": "Code",
       "name": "Merge Tier 3 By Message ID",
-      "notes": "Merge Claude responses back by messageId, not by item position."
+      "notes": "Merge local LLM responses back by messageId, not by item position."
     },
     {
       "id": "resolve_outlook_label",
@@ -188,8 +192,8 @@
   },
   "safe_failure_handling": [
     "If Outlook categories cannot be discovered or mapped, stop before fetching messages.",
-    "If Claude fails, keep deterministic result when available, set error_text, audit the attempt, and send Slack exception.",
-    "If Claude JSON parsing fails, keep deterministic result when available, set error_text, audit the attempt, and send Slack exception.",
+    "If the DBHub local LLM fails, keep deterministic result when available, set error_text, audit the attempt, and send Slack exception.",
+    "If local LLM JSON parsing fails, keep deterministic result when available, set error_text, audit the attempt, and send Slack exception.",
     "If Outlook PATCH fails, audit with applied_ok false and send Slack exception.",
     "If Postgres audit insert fails, send Slack exception and do not retry Outlook PATCH.",
     "Keep dry_run true until representative audit rows are reviewed."
@@ -199,7 +203,7 @@
     "Outlook Q1/Q2/Q3/Q4/QR labels are discovered and mapped.",
     "Classifier directory is mounted read-only into the n8n container.",
     "Dedicated classifier Postgres is online and private to the Docker network.",
-    "ANTHROPIC_API_KEY is present only in n8n credentials or VPS environment.",
+    "DBHub local LLM endpoint and model are confirmed reachable from the n8n container.",
     "Dry-run audit rows are reviewed before live PATCH is enabled."
   ]
 }
