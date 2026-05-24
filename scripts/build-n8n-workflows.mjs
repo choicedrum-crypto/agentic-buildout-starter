@@ -1907,6 +1907,7 @@ for (const item of workflows) {
       name: item.name,
       description: item.description,
     });
+    await tool('publish_workflow', { workflowId: existing.id });
     console.log(`updated ${item.name} (${existing.id})`);
   } else {
     const created = await tool('create_workflow_from_code', {
@@ -1916,6 +1917,9 @@ for (const item of workflows) {
     });
     const createdContent = getStructuredContent(created);
     const workflowId = createdContent.workflow?.id || createdContent.id || 'unknown';
+    if (workflowId !== 'unknown') {
+      await tool('publish_workflow', { workflowId });
+    }
     console.log(`created ${item.name} (${workflowId})`);
 
     if (legacyExisting) {
