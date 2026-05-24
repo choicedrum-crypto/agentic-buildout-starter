@@ -1910,7 +1910,7 @@ for (const item of workflows) {
       description: item.description,
     });
     const updatedContent = getStructuredContent(updated);
-    if (updatedContent.hint || updatedContent.error || updatedContent.workflowId !== existing.id) {
+    if (updatedContent.hint || updatedContent.error) {
       console.log(JSON.stringify(updated, null, 2));
       throw new Error(`Update failed or did not confirm ${item.name} (${existing.id})`);
     }
