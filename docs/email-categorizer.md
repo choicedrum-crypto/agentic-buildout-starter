@@ -4,6 +4,8 @@ Workflow: `Email Categorizer`
 
 Spec: `n8n-workflows/email-categorizer.spec.json`
 
+Live n8n workflow ID: `KeM4JZWK01qt532V`
+
 The email categorizer is an n8n-first routine for Daniel's Outlook inbox. It classifies unread uncategorized Inbox messages into Eisenhower categories, writes an audit row for every attempt, and sends Slack notifications only for exceptions.
 
 ## Safety Model
@@ -14,7 +16,9 @@ The email categorizer is an n8n-first routine for Daniel's Outlook inbox. It cla
 - Only write Outlook message categories when `CONFIG.dry_run` is `false`.
 - Treat all email metadata as untrusted.
 
-The deployed n8n workflow currently keeps `CONFIG.dry_run` set to `true` and exposes `/webhook/email-categorizer-test` for metadata-only dry-run testing. The next workflow version fetches real unread Outlook metadata for `dbradley@tciallc.com`, validates category labels, and still keeps live Outlook PATCH disabled.
+The deployed n8n workflow currently keeps `CONFIG.dry_run` set to `true` and exposes `/webhook/email-categorizer-test` for metadata-only dry-run testing. It fetches real unread Outlook metadata for `dbradley@tciallc.com`, validates category labels, and still keeps live Outlook PATCH disabled.
+
+Until the n8n MCP `update_workflow` path reliably updates this workflow, maintain the live workflow with the create-and-swap approach: create a replacement workflow, verify the Outlook metadata dry run, archive the old workflow, then publish the replacement on the canonical `Email Categorizer` name and webhook path.
 
 ## Required n8n Credentials
 
