@@ -52,6 +52,18 @@ Use this checklist before trusting the automation with real work.
 - Confirm Plane receives a deployment comment with the GitHub Actions run URL, commit SHA, status, and PR URL.
 - If the deployment comment is missing, confirm the `Comment on Plane with Deployment Result` node is manually bound to the `Plane Main` HTTP Header Auth credential in n8n.
 
+## Email Categorizer Dry Run
+
+- Confirm Microsoft Outlook OAuth2 credential exists in n8n.
+- Confirm the classifier directory is mounted read-only into n8n.
+- Confirm the dedicated classifier Postgres database is reachable from n8n.
+- Validate Outlook category labels match the `CONFIG` category map.
+- Run the manual trigger with `CONFIG.dry_run` set to `true`.
+- Confirm audit rows are created with quadrants `Q1`, `Q2`, `Q3`, `Q4`, or `QR`.
+- Confirm tier zero and Tier 3 rows are accepted by the audit schema.
+- Confirm no Outlook categories are changed during dry run.
+- Confirm Slack posts only exceptions.
+
 ## Safety
 
 - Confirm no credentials are committed.
