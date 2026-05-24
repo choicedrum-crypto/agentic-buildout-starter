@@ -100,3 +100,28 @@ Example PR comment:
 Please rebuild this as an n8n workflow instead of a GitHub Actions workflow.
 ```
 - n8n never runs deployment commands.
+
+## Workflow E: Email Categorizer
+
+Spec: `n8n-workflows/email-categorizer.spec.json`
+
+Trigger:
+- n8n schedule every minute.
+- Manual and test webhook triggers for dry-run validation.
+
+Core logic:
+1. Load shared constants and the Outlook category map from the workflow-local `CONFIG` Set node.
+2. Discover live Outlook master categories and verify Q1/Q2/Q3/Q4/QR labels are mapped.
+3. Fetch unread uncategorized Inbox message metadata only.
+4. Run Tier 1/Tier 2 classification from the mounted classifier directory.
+5. Escalate low-confidence cases to Claude using metadata only, never email bodies or attachments.
+6. Merge Tier 3 results by message ID.
+7. In dry run, skip Outlook PATCH and write audit rows.
+8. In live mode, PATCH Outlook categories and write audit rows.
+9. Notify Slack only for exceptions such as Quarantine, Claude failures, parse failures, Outlook PATCH failures, or Postgres audit failures.
+
+Safe behavior:
+- Keep `CONFIG.dry_run` true until representative audit rows are reviewed.
+- Do not use global variables for shared constants.
+- Do not store Microsoft, Anthropic, Slack, or Postgres secrets in workflow JSON.
+- Do not move, delete, archive, reply, forward, or mark messages read/unread.

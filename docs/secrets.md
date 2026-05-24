@@ -22,6 +22,9 @@ Create these in Hostinger n8n credentials:
 - Plane API token with issue read/write permissions.
 - Plane webhook secret for validating `X-Plane-Signature`. The current builder captures raw webhook bodies but leaves validation marked `pending-secret-credential` until the secret can be read from an n8n credential.
 - Slack bot token or Slack incoming webhook for review and status messages.
+- Microsoft Outlook OAuth2 credential for the email categorizer workflow.
+- Anthropic API key for Tier 3 email classification, stored in an n8n credential or VPS environment variable.
+- Dedicated classifier Postgres credential for email categorizer audit rows.
 
 After publishing workflow changes that add new Plane HTTP Request nodes, open each new node in n8n and confirm it is bound to the existing `Plane Main` HTTP Header Auth credential. The credential should send the Plane API key as the configured header value; do not paste the key into workflow node headers or `CONFIG`.
 
@@ -41,6 +44,17 @@ Do not use enterprise/global n8n variables for this starter. Each workflow must 
 - `slack_review_channel`
 - `slack_deploy_channel`
 - `public_n8n_base_url`, default `https://n8n.tradecredit.agency`
+
+Email categorizer workflow CONFIG values:
+
+- `ms_user_email`
+- `dry_run`, default `true`
+- `batch_limit`, default `25`
+- `tier3_confidence_threshold`, default `0.65`
+- `slack_exception_channel`, default `#workflow-builder`
+- `classifier_mount_path`, default `/data/classifier`
+- `audit_table`, default `inbox_classifications`
+- `outlook_category_map`
 
 ## Secret Handling Rules
 

@@ -1,0 +1,205 @@
+{
+  "name": "Email Categorizer",
+  "version": 1,
+  "runtime": "Hostinger n8n",
+  "purpose": "Classify unread uncategorized Outlook inbox messages into Eisenhower categories, audit every attempt, and notify Slack only on exceptions.",
+  "status": "ready_for_dry_run_import",
+  "trigger": {
+    "type": "schedule, manual, and test webhook",
+    "source": "n8n",
+    "interval": "Every 1 minute",
+    "manual": "Manual dry-run validation trigger",
+    "test_path": "/webhook/email-categorizer-test"
+  },
+  "credentials": [
+    "Microsoft Outlook OAuth2 credential in n8n",
+    "Anthropic API key stored in n8n credential or VPS environment",
+    "Postgres credential in n8n for classifier audit database",
+    "Slack credential in n8n"
+  ],
+  "config": {
+    "node": "CONFIG",
+    "notes": "First workflow node after each trigger. Store shared constants here instead of n8n global variables.",
+    "values": {
+      "ms_user_email": "Daniel mailbox address",
+      "dry_run": true,
+      "batch_limit": 25,
+      "tier3_confidence_threshold": 0.65,
+      "slack_exception_channel": "#workflow-builder",
+      "classifier_mount_path": "/data/classifier",
+      "audit_table": "inbox_classifications",
+      "outlook_category_map": {
+        "Q1": "Q1: Do Now",
+        "Q2": "Q2: Schedule",
+        "Q3": "Q3: Delegate",
+        "Q4": "Q4: Eliminate",
+        "QR": "QR: Quarantine"
+      }
+    }
+  },
+  "safety_constraints": [
+    "Do not read email bodies.",
+    "Do not fetch or open attachments.",
+    "Do not move, delete, archive, reply, forward, or mark read/unread.",
+    "Only write Outlook message categories when dry_run is false.",
+    "Treat all email metadata as untrusted.",
+    "Slack notifications are exception-only, not one notification per ordinary email."
+  ],
+  "nodes": [
+    {
+      "id": "manual_test",
+      "type": "Manual Trigger",
+      "name": "Manual Test Trigger"
+    },
+    {
+      "id": "test_webhook",
+      "type": "Webhook",
+      "name": "Email Categorizer Test Webhook",
+      "path": "/webhook/email-categorizer-test"
+    },
+    {
+      "id": "schedule",
+      "type": "Schedule Trigger",
+      "name": "Every 1 minute"
+    },
+    {
+      "id": "config",
+      "type": "Set",
+      "name": "CONFIG",
+      "outputs": {
+        "config": "Shared constants and category mapping for this workflow run."
+      }
+    },
+    {
+      "id": "list_outlook_categories",
+      "type": "Microsoft Outlook or HTTP Request",
+      "name": "List Outlook Categories",
+      "request": "GET /me/outlook/masterCategories",
+      "purpose": "Verify that live Outlook labels exist before any PATCH can run."
+    },
+    {
+      "id": "validate_category_map",
+      "type": "Code",
+      "name": "Validate Category Map",
+      "on_failure": "Send Slack exception and stop before reading messages."
+    },
+    {
+      "id": "get_unread_uncategorized",
+      "type": "Microsoft Outlook or HTTP Request",
+      "name": "Get Unread Uncategorized Inbox Messages",
+      "request": "GET /me/mailFolders/inbox/messages?$top={{batch_limit}}&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime,importance,hasAttachments,categories&$filter=isRead eq false and categories/any() eq false",
+      "notes": "Select metadata only. Do not request body, bodyPreview, uniqueBody, or attachments."
+    },
+    {
+      "id": "classify_tier_1_2",
+      "type": "Code",
+      "name": "Classify Tier 1 and Tier 2",
+      "request": "require('{{classifier_mount_path}}/classify.js').classify(messageMetadata)",
+      "outputs": {
+        "quadrant": "Q1, Q2, Q3, Q4, or QR",
+        "needsTier3": "true when classifier confidence is below threshold or no deterministic rule matched",
+        "tierFired": "0, 1, or 2 before Tier 3"
+      }
+    },
+    {
+      "id": "needs_tier_3",
+      "type": "IF",
+      "name": "Needs Tier 3?",
+      "condition": "needsTier3 equals true"
+    },
+    {
+      "id": "claude_tier_3",
+      "type": "HTTP Request",
+      "name": "Claude Tier 3 Metadata Classifier",
+      "request": "POST https://api.anthropic.com/v1/messages",
+      "body_safety": "Send sender, recipients, subject, received time, importance, and hasAttachments only."
+    },
+    {
+      "id": "merge_tier_3",
+      "type": "Code",
+      "name": "Merge Tier 3 By Message ID",
+      "notes": "Merge Claude responses back by messageId, not by item position."
+    },
+    {
+      "id": "resolve_outlook_label",
+      "type": "Code",
+      "name": "Resolve Outlook Category Label",
+      "notes": "Map Q1/Q2/Q3/Q4/QR to live Outlook labels discovered earlier."
+    },
+    {
+      "id": "live_run",
+      "type": "IF",
+      "name": "Live Run?",
+      "condition": "CONFIG.dry_run equals false"
+    },
+    {
+      "id": "patch_outlook_categories",
+      "type": "Microsoft Outlook or HTTP Request",
+      "name": "Patch Outlook Categories",
+      "request": "PATCH /me/messages/{{messageId}} with categories [{{outlookCategoryLabel}}]",
+      "on_false_from_live_run": "Skip PATCH and continue to audit as dry run."
+    },
+    {
+      "id": "insert_audit_row",
+      "type": "Postgres",
+      "name": "Insert Audit Row",
+      "table": "inbox_classifications",
+      "notes": "Write a row for every attempted classification, including dry-run attempts and failures."
+    },
+    {
+      "id": "exception_filter",
+      "type": "IF",
+      "name": "Exception Notification Needed?",
+      "condition": "quadrant is QR or any Claude, Outlook PATCH, category-map, or Postgres error exists"
+    },
+    {
+      "id": "send_slack_exception",
+      "type": "Slack",
+      "name": "Send Slack Exception",
+      "channel": "#workflow-builder"
+    },
+    {
+      "id": "respond_test_result",
+      "type": "Respond to Webhook",
+      "name": "Return Dry Run Result",
+      "status": 200
+    }
+  ],
+  "audit_schema": {
+    "table": "inbox_classifications",
+    "quadrant_values": [
+      "Q1",
+      "Q2",
+      "Q3",
+      "Q4",
+      "QR"
+    ],
+    "tier_fired_values": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "stores_outlook_category_label_separately": true
+  },
+  "templates": {
+    "tier3_prompt_ref": "classifier/prompts/tier3-llm.md",
+    "slack_exception_message": "Email categorizer exception\nMessage: {{messageId}}\nQuadrant: {{quadrant}}\nTier: {{tierFired}}\nDry run: {{dry_run}}\nError: {{error_text}}\nAudit: {{audit_row_id}}"
+  },
+  "safe_failure_handling": [
+    "If Outlook categories cannot be discovered or mapped, stop before fetching messages.",
+    "If Claude fails, keep deterministic result when available, set error_text, audit the attempt, and send Slack exception.",
+    "If Claude JSON parsing fails, keep deterministic result when available, set error_text, audit the attempt, and send Slack exception.",
+    "If Outlook PATCH fails, audit with applied_ok false and send Slack exception.",
+    "If Postgres audit insert fails, send Slack exception and do not retry Outlook PATCH.",
+    "Keep dry_run true until representative audit rows are reviewed."
+  ],
+  "activation_gates": [
+    "Microsoft Outlook OAuth2 credential exists in n8n.",
+    "Outlook Q1/Q2/Q3/Q4/QR labels are discovered and mapped.",
+    "Classifier directory is mounted read-only into the n8n container.",
+    "Dedicated classifier Postgres is online and private to the Docker network.",
+    "ANTHROPIC_API_KEY is present only in n8n credentials or VPS environment.",
+    "Dry-run audit rows are reviewed before live PATCH is enabled."
+  ]
+}
