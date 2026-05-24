@@ -73,7 +73,7 @@ Core logic:
 1. Continue only when the deploy workflow has completed.
 2. Resolve the merged PR and linked Plane task from the deployment commit and PR body.
 3. If deployment succeeded, move Plane to `Done` and add the workflow run link.
-4. If deployment succeeded and a linked GitHub issue is resolved from the PR body, comment on that issue and close it as completed.
+4. If deployment succeeded and both a Plane task and linked GitHub issue are resolved from the PR body, comment on that issue and close it as completed.
 5. If deployment failed, move Plane to `Blocked` or `Failed` and add the run link.
 6. Notify Slack with the final deployment result.
 
@@ -85,7 +85,7 @@ PR body handoff:
 Safe behavior:
 - If Plane cannot be resolved, still notify Slack with the GitHub Actions run URL.
 - If Slack fails, let the GitHub webhook retry.
-- Do not close linked GitHub issues on failed deploys.
+- Do not close linked GitHub issues on failed deploys or PRs that are not Plane-backed.
 
 ## Workflow D: GitHub PR Feedback to Codex Revision Queue
 

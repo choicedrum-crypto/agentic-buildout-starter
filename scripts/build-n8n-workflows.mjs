@@ -1213,7 +1213,7 @@ const message = [
   'PR: ' + (prUrl || 'not resolved from commit'),
   'Plane: ' + (planeUrl || planeIssueId || 'not resolved'),
   'Plane status update: ' + (planeIssueId ? 'queued' : 'skipped, Plane task not resolved'),
-  'GitHub issue close: ' + (base.success && githubIssueNumber ? '#' + githubIssueNumber + ' queued' : 'skipped')
+  'GitHub issue close: ' + (base.success && planeIssueId && githubIssueNumber ? '#' + githubIssueNumber + ' queued' : 'skipped')
 ].join('\\\\n');
 return { json: { ...base, plane_issue_id: planeIssueId, plane_url: planeUrl, pr_url: prUrl, github_issue_number: String(githubIssueNumber || ''), github_issue_url: githubIssueNumber ? 'https://github.com/' + base.config.github_owner + '/' + base.config.github_repo + '/issues/' + githubIssueNumber : '', slack_message: message } };
 \`
@@ -1275,6 +1275,7 @@ const shouldCloseGitHubIssue = ifElse({
         options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
         conditions: [
           { leftValue: expr('{{ String($("Resolve Plane Context").item.json.success) }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'true' },
+          { leftValue: expr('{{ $("Resolve Plane Context").item.json.plane_issue_id }}'), operator: { type: 'string', operation: 'notEmpty' } },
           { leftValue: expr('{{ $("Resolve Plane Context").item.json.github_issue_number }}'), operator: { type: 'string', operation: 'notEmpty' } }
         ],
         combinator: 'and'
