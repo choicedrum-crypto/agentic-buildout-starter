@@ -1198,6 +1198,13 @@ const planeIssueId =
   '';
 const planeUrl = base.plane_url || text.match(/https?:\\\\/\\\\/[^\\\\s)"]*plane[^\\\\s)"]*/i)?.[0] || '';
 const prUrl = pr.html_url || (base.pr_number ? 'https://github.com/' + base.config.github_owner + '/' + base.config.github_repo + '/pull/' + base.pr_number : '');
+const githubIssueNumber =
+  text.match(new RegExp('issues/([0-9]+)', 'i'))?.[1] ||
+  text.match(new RegExp('Related GitHub issue:[^#]*#([0-9]+)', 'i'))?.[1] ||
+  text.match(new RegExp('GitHub issue:[^#]*#([0-9]+)', 'i'))?.[1] ||
+  text.match(new RegExp('Fixes[^#]*#([0-9]+)', 'i'))?.[1] ||
+  text.match(new RegExp('Closes[^#]*#([0-9]+)', 'i'))?.[1] ||
+  '';
 const message = [
   'Deployment ' + (base.success ? 'succeeded' : 'failed'),
   'Repo: ' + (base.repository || base.config.github_owner + '/' + base.config.github_repo),
@@ -1205,9 +1212,10 @@ const message = [
   'Run: ' + (base.run_url || 'not provided'),
   'PR: ' + (prUrl || 'not resolved from commit'),
   'Plane: ' + (planeUrl || planeIssueId || 'not resolved'),
-  'Plane status update: ' + (planeIssueId ? 'queued' : 'skipped, Plane task not resolved')
+  'Plane status update: ' + (planeIssueId ? 'queued' : 'skipped, Plane task not resolved'),
+  'GitHub issue close: ' + (base.success && githubIssueNumber ? '#' + githubIssueNumber + ' queued' : 'skipped')
 ].join('\\\\n');
-return { json: { ...base, plane_issue_id: planeIssueId, plane_url: planeUrl, pr_url: prUrl, slack_message: message } };
+return { json: { ...base, plane_issue_id: planeIssueId, plane_url: planeUrl, pr_url: prUrl, github_issue_number: String(githubIssueNumber || ''), github_issue_url: githubIssueNumber ? 'https://github.com/' + base.config.github_owner + '/' + base.config.github_repo + '/issues/' + githubIssueNumber : '', slack_message: message } };
 \`
     }
   }
@@ -1253,7 +1261,67 @@ const commentPlaneDeployment = node({
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
-      jsonBody: expr('{{ { comment_html: "<p>Deployment " + $("Resolve Plane Context").item.json.deployment_status + ".</p><ul><li>GitHub Actions run: " + ($("Resolve Plane Context").item.json.run_url || "not provided") + "</li><li>Commit: " + ($("Resolve Plane Context").item.json.head_sha || "unknown") + "</li><li>PR: " + ($("Resolve Plane Context").item.json.pr_url || "not resolved") + "</li></ul>", comment_json: {}, access: $("Resolve Plane Context").item.json.config.plane_comment_access || "INTERNAL", external_source: "github_actions", external_id: String($("Resolve Plane Context").item.json.head_sha || "") } }}')
+      jsonBody: expr('{{ { comment_html: "<p>Deployment " + $("Resolve Plane Context").item.json.deployment_status + ".</p><ul><li>GitHub Actions run: " + ($("Resolve Plane Context").item.json.run_url || "not provided") + "</li><li>Commit: " + ($("Resolve Plane Context").item.json.head_sha || "unknown") + "</li><li>PR: " + ($("Resolve Plane Context").item.json.pr_url || "not resolved") + "</li></ul>", comment_json: {}, access: $("Resolve Plane Context").item.json.config.plane_comment_access || "INTERNAL", external_source: "github_actions", external_id: String(($("Resolve Plane Context").item.json.head_sha || "deployment") + "-" + Date.now()) } }}')
+    }
+  }
+});
+
+const shouldCloseGitHubIssue = ifElse({
+  version: 2.3,
+  config: {
+    name: 'Close GitHub Issue?',
+    parameters: {
+      conditions: {
+        options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
+        conditions: [
+          { leftValue: expr('{{ String($("Resolve Plane Context").item.json.success) }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'true' },
+          { leftValue: expr('{{ $("Resolve Plane Context").item.json.github_issue_number }}'), operator: { type: 'string', operation: 'notEmpty' } }
+        ],
+        combinator: 'and'
+      }
+    }
+  }
+});
+
+const commentGitHubIssueCompleted = node({
+  type: 'n8n-nodes-base.github',
+  version: 1.1,
+  config: {
+    name: 'Comment GitHub Issue Completed',
+    alwaysOutputData: true,
+    continueOnFail: true,
+    credentials: { githubApi: newCredential('${githubCredential}') },
+    parameters: {
+      resource: 'issue',
+      operation: 'createComment',
+      authentication: 'accessToken',
+      owner: { __rl: true, mode: 'name', value: 'choicedrum-crypto' },
+      repository: { __rl: true, mode: 'name', value: 'agentic-buildout-starter' },
+      issueNumber: expr('{{ Number($("Resolve Plane Context").item.json.github_issue_number) }}'),
+      body: expr('{{ "Completed by PR " + ($("Resolve Plane Context").item.json.pr_url || "not resolved") + ".\\\\n\\\\nDeployment succeeded: " + ($("Resolve Plane Context").item.json.run_url || "not provided") + "\\\\nCommit: " + ($("Resolve Plane Context").item.json.head_sha || "unknown") }}')
+    }
+  }
+});
+
+const closeGitHubIssueCompleted = node({
+  type: 'n8n-nodes-base.github',
+  version: 1.1,
+  config: {
+    name: 'Close GitHub Issue Completed',
+    alwaysOutputData: true,
+    continueOnFail: true,
+    credentials: { githubApi: newCredential('${githubCredential}') },
+    parameters: {
+      resource: 'issue',
+      operation: 'edit',
+      authentication: 'accessToken',
+      owner: { __rl: true, mode: 'name', value: 'choicedrum-crypto' },
+      repository: { __rl: true, mode: 'name', value: 'agentic-buildout-starter' },
+      issueNumber: expr('{{ Number($("Resolve Plane Context").item.json.github_issue_number) }}'),
+      editFields: {
+        state: 'closed',
+        state_reason: 'completed'
+      }
     }
   }
 });
@@ -1269,7 +1337,8 @@ const restoreDeployMessage = node({
       assignments: {
         assignments: [
           { id: 'slack-message', name: 'slack_message', type: 'string', value: expr('{{ $("Resolve Plane Context").item.json.slack_message }}') },
-          { id: 'deployment-status', name: 'deployment_status', type: 'string', value: expr('{{ $("Resolve Plane Context").item.json.deployment_status }}') }
+          { id: 'deployment-status', name: 'deployment_status', type: 'string', value: expr('{{ $("Resolve Plane Context").item.json.deployment_status }}') },
+          { id: 'github-issue-number', name: 'github_issue_number', type: 'string', value: expr('{{ $("Resolve Plane Context").item.json.github_issue_number || "" }}') }
         ]
       }
     }
@@ -1304,10 +1373,14 @@ export default workflow('deployment-result-plane-slack', 'Deployment Result to P
   .to(isCompletedDeploy
     .onTrue(hasPrNumber
       .onTrue(fetchMergedPr.to(resolvePlaneContext).to(hasPlane
-        .onTrue(updatePlane.to(commentPlaneDeployment).to(restoreDeployMessage).to(slackDeploy).to(respondSynced))
+        .onTrue(updatePlane.to(commentPlaneDeployment).to(shouldCloseGitHubIssue
+          .onTrue(commentGitHubIssueCompleted.to(closeGitHubIssueCompleted).to(restoreDeployMessage).to(slackDeploy).to(respondSynced))
+          .onFalse(restoreDeployMessage.to(slackDeploy).to(respondSynced))))
         .onFalse(slackDeploy.to(respondSynced))))
       .onFalse(fetchPrsForCommit.to(resolvePlaneContext).to(hasPlane
-        .onTrue(updatePlane.to(commentPlaneDeployment).to(restoreDeployMessage).to(slackDeploy).to(respondSynced))
+        .onTrue(updatePlane.to(commentPlaneDeployment).to(shouldCloseGitHubIssue
+          .onTrue(commentGitHubIssueCompleted.to(closeGitHubIssueCompleted).to(restoreDeployMessage).to(slackDeploy).to(respondSynced))
+          .onFalse(restoreDeployMessage.to(slackDeploy).to(respondSynced))))
         .onFalse(slackDeploy.to(respondSynced)))))
     .onFalse(respondIgnored));
 `;
