@@ -50,7 +50,9 @@ Use this checklist before trusting the automation with real work.
 - Confirm deployment result resolves the merged PR's `plane_issue_id` when present.
 - Confirm Slack receives deployment success or failure.
 - Confirm n8n moves Plane to `Done` on success.
+- Confirm n8n comments on and closes the linked GitHub source issue only after successful deploy.
 - Confirm n8n moves Plane to `Blocked` or `Failed` on failure.
+- Confirm failed deploys do not close the linked GitHub source issue.
 - Confirm Plane receives a deployment comment with the GitHub Actions run URL, commit SHA, status, and PR URL.
 - If the deployment comment is missing, confirm the `Comment on Plane with Deployment Result` node is manually bound to the `Plane Main` HTTP Header Auth credential in n8n.
 
