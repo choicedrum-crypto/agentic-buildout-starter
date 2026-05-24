@@ -64,6 +64,9 @@ Use this checklist before trusting the automation with real work.
 
 - Confirm Microsoft Outlook OAuth2 credential exists in n8n.
 - Confirm the `Email Categorizer` workflow exists in n8n and `/webhook/email-categorizer-test` returns dry-run classification JSON.
+- Confirm `CONFIG.ms_user_email` is `dbradley@tciallc.com`.
+- Confirm real Outlook dry run fetches unread metadata only and never requests body, bodyPreview, uniqueBody, or attachments.
+- Confirm DBHub local LLM endpoint/model is documented before enabling Tier 3.
 - Confirm the classifier directory is mounted read-only into n8n.
 - Confirm the dedicated classifier Postgres database is reachable from n8n.
 - Validate Outlook category labels match the `CONFIG` category map.

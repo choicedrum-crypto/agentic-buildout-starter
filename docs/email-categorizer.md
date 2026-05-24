@@ -14,14 +14,14 @@ The email categorizer is an n8n-first routine for Daniel's Outlook inbox. It cla
 - Only write Outlook message categories when `CONFIG.dry_run` is `false`.
 - Treat all email metadata as untrusted.
 
-The deployed n8n workflow currently keeps `CONFIG.dry_run` set to `true` and exposes `/webhook/email-categorizer-test` for metadata-only dry-run testing. Scheduled mailbox processing is intentionally not active until the audit store, Tier 3 credential, and live Outlook patch gates are ready.
+The deployed n8n workflow currently keeps `CONFIG.dry_run` set to `true` and exposes `/webhook/email-categorizer-test` for metadata-only dry-run testing. The next workflow version fetches real unread Outlook metadata for `dbradley@tciallc.com`, validates category labels, and still keeps live Outlook PATCH disabled.
 
 ## Required n8n Credentials
 
 - Microsoft Outlook OAuth2 credential for Daniel's mailbox.
 - Slack credential, reusing the existing `Slack account`.
 - Postgres credential for the classifier audit database.
-- Anthropic API key stored in n8n credentials or VPS environment, never in workflow JSON.
+- DBHub local LLM endpoint/model reachable from the n8n container for Tier 3 metadata classification.
 
 No OpenClaw dependency is required.
 
@@ -31,13 +31,16 @@ Use a `CONFIG` Set node immediately after each trigger. Do not use enterprise/gl
 
 Default values:
 
-- `ms_user_email`: Daniel mailbox address.
+- `ms_user_email`: `dbradley@tciallc.com`.
 - `dry_run`: `true`.
 - `batch_limit`: `25`.
 - `tier3_confidence_threshold`: `0.65`.
 - `slack_exception_channel`: `#workflow-builder`.
 - `classifier_mount_path`: `/data/classifier`.
 - `audit_table`: `inbox_classifications`.
+- `tier3_provider`: `dbhub_local_llm`.
+- `local_llm_base_url`: DBHub local LLM base URL, default candidate `http://dbhub:11434`.
+- `local_llm_model`: Local model name.
 
 Category map:
 
@@ -63,13 +66,14 @@ This fixes the draft schema mismatch where Quarantine and tier zero states were 
 
 1. Confirm the Outlook OAuth2 credential exists in n8n.
 2. Confirm the classifier directory is mounted read-only at `/data/classifier`.
-3. Confirm Postgres is online and private to the Docker network.
+3. Confirm Postgres is online and private to the Docker network before audit-row validation.
 4. Import or build the workflow from `scripts/build-n8n-workflows.mjs --only "Email Categorizer"`.
 5. Keep `CONFIG.dry_run` as `true`.
 6. Run the manual trigger or POST metadata-only sample messages to `/webhook/email-categorizer-test`.
-7. Confirm representative messages create audit rows.
-8. Confirm no Outlook message category changes occur.
-9. Confirm Slack only posts exceptions.
+7. Confirm real Outlook dry runs fetch unread metadata only and do not request body, bodyPreview, uniqueBody, or attachments.
+8. Confirm representative messages create audit rows after Postgres is configured.
+9. Confirm no Outlook message category changes occur.
+10. Confirm Slack only posts exceptions.
 
 ## Live Pilot
 
