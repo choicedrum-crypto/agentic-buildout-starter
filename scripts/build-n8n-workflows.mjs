@@ -1126,12 +1126,12 @@ const listOutlookCategories = node({
   version: 4.4,
   config: {
     name: 'List Outlook Categories',
-    credentials: { microsoftOAuth2Api: newCredential('Microsoft Outlook account') },
+    credentials: { microsoftOutlookOAuth2Api: newCredential('Microsoft Outlook account') },
     parameters: {
       method: 'GET',
       url: expr('{{ "https://graph.microsoft.com/v1.0/users/" + $json.config.ms_user_email + "/outlook/masterCategories" }}'),
       authentication: 'predefinedCredentialType',
-      nodeCredentialType: 'microsoftOAuth2Api',
+      nodeCredentialType: 'microsoftOutlookOAuth2Api',
       sendHeaders: true,
       headerParameters: { parameters: [{ name: 'Accept', value: 'application/json' }] }
     }
@@ -1263,12 +1263,12 @@ const getUnreadUncategorized = node({
   version: 4.4,
   config: {
     name: 'Get Unread Uncategorized Outlook Metadata',
-    credentials: { microsoftOAuth2Api: newCredential('Microsoft Outlook account') },
+    credentials: { microsoftOutlookOAuth2Api: newCredential('Microsoft Outlook account') },
     parameters: {
       method: 'GET',
       url: expr('{{ "https://graph.microsoft.com/v1.0/users/" + $json.config.ms_user_email + "/mailFolders/inbox/messages?$top=" + Number($json.config.batch_limit || 25) + "&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime,importance,hasAttachments,categories,isRead&$filter=isRead eq false" }}'),
       authentication: 'predefinedCredentialType',
-      nodeCredentialType: 'microsoftOAuth2Api',
+      nodeCredentialType: 'microsoftOutlookOAuth2Api',
       sendHeaders: true,
       headerParameters: { parameters: [{ name: 'Accept', value: 'application/json' }] }
     }
@@ -1903,12 +1903,17 @@ for (const item of workflows) {
 
   if (existing) {
     await tool('unpublish_workflow', { workflowId: existing.id });
-    await tool('update_workflow', {
+    const updated = await tool('update_workflow', {
       workflowId: existing.id,
       code: item.code,
       name: item.name,
       description: item.description,
     });
+    const updatedContent = getStructuredContent(updated);
+    if (updatedContent.hint || updatedContent.error || updatedContent.workflowId !== existing.id) {
+      console.log(JSON.stringify(updated, null, 2));
+      throw new Error(`Update failed or did not confirm ${item.name} (${existing.id})`);
+    }
     await tool('publish_workflow', { workflowId: existing.id });
     if (item.verifyContains?.length) {
       const details = await tool('get_workflow_details', { workflowId: existing.id });
