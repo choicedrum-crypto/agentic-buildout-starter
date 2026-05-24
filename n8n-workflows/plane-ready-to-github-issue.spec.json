@@ -2,7 +2,7 @@
   "name": "Plane Ready to GitHub Issue",
   "version": 1,
   "runtime": "Hostinger n8n",
-  "purpose": "Create one GitHub issue when a Plane task is moved to Ready, then write the GitHub link back to Plane.",
+  "purpose": "Create or reuse one open GitHub issue when a Plane task is moved to Ready, then write the usable GitHub link back to Plane.",
   "trigger": {
     "type": "webhook",
     "source": "Plane",
@@ -59,7 +59,8 @@
         "plane_description": "Issue description",
         "plane_state": "Current state name",
         "plane_url": "Cloud Plane issue URL",
-        "existing_github_issue_url": "GitHub issue URL custom property or parsed from comments"
+        "existing_github_issue_url": "Open GitHub issue URL found by Plane issue ID",
+        "closed_github_issue_count": "Number of closed GitHub issues found for the same Plane issue ID"
       }
     },
     {
@@ -72,9 +73,10 @@
     {
       "id": "dedupe_existing_link",
       "type": "IF",
-      "name": "No existing GitHub issue link",
-      "condition": "existing_github_issue_url is empty",
-      "on_false": "Respond 200 with existing GitHub issue URL."
+      "name": "No existing open GitHub issue link",
+      "condition": "existing_github_issue_url is empty after searching open and closed GitHub issues by Plane issue ID",
+      "on_true": "Create a new replacement issue when no open issue exists, even if older closed issues exist.",
+      "on_false": "Respond 200 with existing open GitHub issue URL."
     },
     {
       "id": "search_github_issue",
@@ -122,8 +124,9 @@
     "slack_queue_message": "Plane task queued for Codex\nPlane: {{plane_url}}\nGitHub Issue: {{github_issue_url}}\nNext: Codex should build through a branch and PR."
   },
   "safe_failure_handling": [
-    "Never create a second GitHub issue if a Plane issue already has a GitHub URL.",
-    "Search GitHub by Plane issue ID before creating a new issue.",
+    "Never create a second GitHub issue if a Plane issue already has an open GitHub issue URL.",
+    "Search GitHub by Plane issue ID before creating a new issue, including closed issues.",
+    "If only closed GitHub issues exist for the Plane issue, create a new replacement issue and comment that the previous link was closed.",
     "On GitHub API failure, leave Plane in Ready and add a failure comment when possible.",
     "On Plane update failure after GitHub issue creation, notify Slack and return the GitHub issue URL for manual repair.",
     "Do not include API tokens or webhook secrets in Slack or Plane comments."
