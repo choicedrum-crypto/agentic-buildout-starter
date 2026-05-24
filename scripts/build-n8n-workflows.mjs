@@ -1126,7 +1126,7 @@ const listOutlookCategories = node({
   version: 4.4,
   config: {
     name: 'List Outlook Categories',
-    credentials: { microsoftOutlookOAuth2Api: newCredential('Microsoft Outlook account') },
+    credentials: { microsoftOutlookOAuth2Api: newCredential('Microsoft Outlook account', 'microsoftOutlookOAuth2Api') },
     parameters: {
       method: 'GET',
       url: expr('{{ "https://graph.microsoft.com/v1.0/users/" + $json.config.ms_user_email + "/outlook/masterCategories" }}'),
@@ -1263,7 +1263,7 @@ const getUnreadUncategorized = node({
   version: 4.4,
   config: {
     name: 'Get Unread Uncategorized Outlook Metadata',
-    credentials: { microsoftOutlookOAuth2Api: newCredential('Microsoft Outlook account') },
+    credentials: { microsoftOutlookOAuth2Api: newCredential('Microsoft Outlook account', 'microsoftOutlookOAuth2Api') },
     parameters: {
       method: 'GET',
       url: expr('{{ "https://graph.microsoft.com/v1.0/users/" + $json.config.ms_user_email + "/mailFolders/inbox/messages?$top=" + Number($json.config.batch_limit || 25) + "&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime,importance,hasAttachments,categories,isRead&$filter=isRead eq false" }}'),
@@ -1854,7 +1854,7 @@ let workflows = [
   },
   {
     name: 'Email Categorizer',
-    workflowId: 'jvJm59fD1uO8gBfD',
+    workflowId: 'KeM4JZWK01qt532V',
     code: emailCategorizerWorkflow,
     description: 'Dry-run-first Outlook Eisenhower classifier workflow with safe test webhook and production activation gates.',
     verifyContains: ['dbradley@tciallc.com', 'Get Unread Uncategorized Outlook Metadata', 'dbhub_local_llm'],
