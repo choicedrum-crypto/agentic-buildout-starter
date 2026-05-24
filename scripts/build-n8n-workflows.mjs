@@ -1063,6 +1063,266 @@ export default workflow('website-checker', 'Website Checker')
     .onFalse(slackAlert.to(respondAlerted)));
 `;
 
+const emailCategorizerWorkflow = `
+import { workflow, node, trigger, ifElse, expr } from '@n8n/workflow-sdk';
+
+const manual = trigger({
+  type: 'n8n-nodes-base.manualTrigger',
+  version: 1,
+  config: {
+    name: 'Manual Dry Run Trigger'
+  }
+});
+
+const testWebhook = trigger({
+  type: 'n8n-nodes-base.webhook',
+  version: 2.1,
+  config: {
+    name: 'Email Categorizer Test Webhook',
+    parameters: {
+      httpMethod: 'POST',
+      path: 'email-categorizer-test',
+      responseMode: 'responseNode'
+    }
+  }
+});
+
+const config = node({
+  type: 'n8n-nodes-base.set',
+  version: 3.4,
+  config: {
+    name: 'CONFIG',
+    parameters: {
+      mode: 'manual',
+      includeOtherFields: true,
+      assignments: {
+        assignments: [
+          { id: 'config-object', name: 'config', type: 'object', value: expr('{{ { dry_run: true, enable_schedule_processing: false, enable_outlook_patch: false, batch_limit: 25, tier3_confidence_threshold: 0.65, slack_exception_channel: "#workflow-builder", audit_table: "inbox_classifications", ms_user_email: "Daniel mailbox address", classifier_mount_path: "/data/classifier", outlook_category_map: { Q1: "Q1: Do Now", Q2: "Q2: Schedule", Q3: "Q3: Delegate", Q4: "Q4: Eliminate", QR: "QR: Quarantine" }, readiness: { outlook_credential: "Microsoft Outlook account", postgres_credential: "pending", anthropic_credential_or_env: "pending" } } }}') }
+        ]
+      }
+    }
+  }
+});
+
+const prepareMessages = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Prepare Dry Run Messages',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const config = $json.config || {};
+const body = $json.body || {};
+const fromWebhook = Array.isArray(body.messages) ? body.messages : [];
+const manualSample = [
+  {
+    id: 'sample-q1',
+    internetMessageId: '<sample-q1@example>',
+    subject: 'Urgent client escalation - response needed today',
+    from: { emailAddress: { address: 'client@example.com', name: 'Sample Client' } },
+    toRecipients: [],
+    ccRecipients: [],
+    receivedDateTime: new Date().toISOString(),
+    importance: 'high',
+    hasAttachments: false,
+    categories: []
+  },
+  {
+    id: 'sample-q2',
+    internetMessageId: '<sample-q2@example>',
+    subject: 'Planning agenda for next week',
+    from: { emailAddress: { address: 'ops@example.com', name: 'Ops' } },
+    toRecipients: [],
+    ccRecipients: [],
+    receivedDateTime: new Date().toISOString(),
+    importance: 'normal',
+    hasAttachments: false,
+    categories: []
+  },
+  {
+    id: 'sample-qr',
+    internetMessageId: '<sample-qr@example>',
+    subject: 'Wire transfer invoice password reset crypto prize',
+    from: { emailAddress: { address: 'alerts@suspicious.example', name: 'Suspicious Sender' } },
+    toRecipients: [],
+    ccRecipients: [],
+    receivedDateTime: new Date().toISOString(),
+    importance: 'normal',
+    hasAttachments: true,
+    categories: []
+  }
+];
+
+const isSchedule = !$json.body && !$json.headers;
+if (isSchedule && !config.enable_schedule_processing) {
+  return {
+    json: {
+      ...$json,
+      mode: 'schedule_noop',
+      messages: [],
+      readiness_errors: ['Schedule processing is disabled in CONFIG.enable_schedule_processing.'],
+      note: 'Dry-run test webhook is active; scheduled mailbox processing is gated off.'
+    }
+  };
+}
+
+const messages = fromWebhook.length ? fromWebhook : manualSample;
+return {
+  json: {
+    ...$json,
+    mode: fromWebhook.length ? 'webhook_dry_run' : 'sample_dry_run',
+    messages: messages.slice(0, Number(config.batch_limit || 25)),
+    readiness_errors: [
+      'Postgres audit credential is not configured in this workflow yet.',
+      'Anthropic Tier 3 credential/env is not configured in this workflow yet.',
+      'Live Outlook PATCH is disabled by CONFIG.enable_outlook_patch=false.'
+    ]
+  }
+};
+\`
+    }
+  }
+});
+
+const classifyMessages = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Classify Metadata Dry Run',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const config = $json.config || {};
+const categoryMap = config.outlook_category_map || {};
+
+function emailAddress(value) {
+  return value?.emailAddress?.address || value?.address || '';
+}
+
+function classify(message) {
+  const subject = String(message.subject || '').toLowerCase();
+  const sender = emailAddress(message.from).toLowerCase();
+  const importance = String(message.importance || '').toLowerCase();
+  const hasAttachments = Boolean(message.hasAttachments);
+  const suspicious = /(wire|crypto|password|gift card|prize|urgent payment|bank|invoice)/i.test(subject) && (hasAttachments || /suspicious|unknown|external/.test(sender));
+  const urgent = /(urgent|asap|today|escalation|blocked|down|outage|deadline)/i.test(subject) || importance === 'high';
+  const planning = /(plan|planning|schedule|agenda|strategy|roadmap|next week|follow up)/i.test(subject);
+  const delegate = /(delegate|assign|handoff|review requested|please review)/i.test(subject);
+  const lowValue = /(newsletter|unsubscribe|promo|sale|digest|webinar)/i.test(subject);
+
+  if (suspicious) return { quadrant: 'QR', tier_fired: 1, confidence: 0.9, reason: 'Suspicious financial/security language from external or attachment-bearing message.' };
+  if (urgent) return { quadrant: 'Q1', tier_fired: 1, confidence: 0.82, reason: 'Urgent/high-importance metadata indicates do-now work.' };
+  if (planning) return { quadrant: 'Q2', tier_fired: 1, confidence: 0.78, reason: 'Planning/scheduling language indicates important non-urgent work.' };
+  if (delegate) return { quadrant: 'Q3', tier_fired: 1, confidence: 0.74, reason: 'Review/delegation language indicates candidate for delegation.' };
+  if (lowValue) return { quadrant: 'Q4', tier_fired: 1, confidence: 0.76, reason: 'Promotional or digest metadata indicates low-value work.' };
+  return { quadrant: 'Q2', tier_fired: 0, confidence: 0.45, reason: 'No deterministic rule matched; would require Tier 3 in production.', needs_tier3: true };
+}
+
+const results = ($json.messages || []).map((message) => {
+  const classification = classify(message);
+  const label = categoryMap[classification.quadrant] || classification.quadrant;
+  return {
+    message_id: message.id || message.internetMessageId || '',
+    internet_message_id: message.internetMessageId || '',
+    subject: message.subject || '',
+    from: emailAddress(message.from),
+    received_at: message.receivedDateTime || '',
+    importance: message.importance || '',
+    has_attachments: Boolean(message.hasAttachments),
+    existing_categories: Array.isArray(message.categories) ? message.categories : [],
+    quadrant: classification.quadrant,
+    outlook_category_label: label,
+    tier_fired: classification.tier_fired,
+    confidence: classification.confidence,
+    needs_tier3: Boolean(classification.needs_tier3),
+    dry_run: Boolean(config.dry_run),
+    would_patch_outlook: Boolean(!config.dry_run && config.enable_outlook_patch),
+    applied_ok: false,
+    reason: classification.reason
+  };
+});
+
+const exceptions = results.filter((item) => item.quadrant === 'QR' || item.needs_tier3);
+const slackMessage = [
+  'Email categorizer dry-run exception summary',
+  'Mode: ' + ($json.mode || 'unknown'),
+  'Messages: ' + results.length,
+  'Exceptions: ' + exceptions.length,
+  'Dry run: ' + String(config.dry_run !== false),
+  'Details: ' + exceptions.map((item) => item.message_id + ' -> ' + item.quadrant + ' (' + item.reason + ')').join('; ')
+].join('\\\\n');
+
+return {
+  json: {
+    ...$json,
+    classification_results: results,
+    exception_count: exceptions.length,
+    slack_message: slackMessage,
+    audit_status: 'skipped_postgres_not_configured',
+    outlook_patch_status: config.dry_run ? 'skipped_dry_run' : 'disabled_until_enable_outlook_patch_true'
+  }
+};
+\`
+    }
+  }
+});
+
+const hasException = ifElse({
+  version: 2.3,
+  config: {
+    name: 'Exception Notification Needed?',
+    parameters: {
+      conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ Number($json.exception_count || 0) }}'), operator: { type: 'number', operation: 'larger' }, rightValue: 0 }], combinator: 'and' }
+    }
+  }
+});
+
+const slackException = node({
+  type: 'n8n-nodes-base.slack',
+  version: 2.4,
+  config: {
+    name: 'Send Slack Exception',
+    parameters: {
+      resource: 'message',
+      operation: 'post',
+      authentication: 'accessToken',
+      select: 'channel',
+      channelId: { __rl: true, mode: 'name', value: '#workflow-builder' },
+      messageType: 'text',
+      text: expr('{{ $json.slack_message }}'),
+      otherOptions: { includeLinkToWorkflow: false, mrkdwn: true }
+    }
+  }
+});
+
+const respondDryRun = node({
+  type: 'n8n-nodes-base.respondToWebhook',
+  version: 1.5,
+  config: {
+    name: 'Return Dry Run Result',
+    parameters: {
+      respondWith: 'json',
+      responseBody: expr('{{ { ok: true, action: "email_categorizer_dry_run", mode: $json.mode, dry_run: $json.config.dry_run, messages: $json.classification_results.length, exception_count: $json.exception_count, audit_status: $json.audit_status, outlook_patch_status: $json.outlook_patch_status, readiness_errors: $json.readiness_errors, results: $json.classification_results } }}'),
+      options: { responseCode: 200 }
+    }
+  }
+});
+
+export default workflow('email-categorizer', 'Email Categorizer')
+  .add(manual)
+  .to(config)
+  .add(testWebhook)
+  .to(config)
+  .to(prepareMessages)
+  .to(classifyMessages)
+  .to(hasException
+    .onTrue(slackException.to(respondDryRun))
+    .onFalse(respondDryRun));
+`;
+
 const deploymentWorkflow = `
 import { workflow, node, trigger, newCredential, ifElse, expr } from '@n8n/workflow-sdk';
 
@@ -1428,6 +1688,11 @@ let workflows = [
     name: 'Website Checker',
     code: websiteCheckerWorkflow,
     description: 'Runs an n8n scheduled website availability check for http://www.tciallc.com/ and alerts Slack when it fails.',
+  },
+  {
+    name: 'Email Categorizer',
+    code: emailCategorizerWorkflow,
+    description: 'Dry-run-first Outlook Eisenhower classifier workflow with safe test webhook and production activation gates.',
   },
 ];
 
