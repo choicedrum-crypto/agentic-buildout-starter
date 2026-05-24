@@ -54,6 +54,23 @@ async function tool(name, args = {}) {
   return mcp('tools/call', { name, arguments: args });
 }
 
+function getStructuredContent(result) {
+  if (result?.structuredContent) {
+    return result.structuredContent;
+  }
+
+  const text = result?.content?.find((item) => item.type === 'text')?.text;
+  if (!text) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {};
+  }
+}
+
 const planeApiCredential = 'Plane Main';
 const githubCredential = 'GitHub account';
 
@@ -1260,6 +1277,7 @@ return {
     ...$json,
     classification_results: results,
     exception_count: exceptions.length,
+    has_exception: exceptions.length > 0,
     slack_message: slackMessage,
     audit_status: 'skipped_postgres_not_configured',
     outlook_patch_status: config.dry_run ? 'skipped_dry_run' : 'disabled_until_enable_outlook_patch_true'
@@ -1275,7 +1293,7 @@ const hasException = ifElse({
   config: {
     name: 'Exception Notification Needed?',
     parameters: {
-      conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ Number($json.exception_count || 0) }}'), operator: { type: 'number', operation: 'larger' }, rightValue: 0 }], combinator: 'and' }
+      conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ String($json.has_exception) }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'true' }], combinator: 'and' }
     }
   }
 });
@@ -1294,6 +1312,29 @@ const slackException = node({
       messageType: 'text',
       text: expr('{{ $json.slack_message }}'),
       otherOptions: { includeLinkToWorkflow: false, mrkdwn: true }
+    }
+  }
+});
+
+const restoreDryRunResult = node({
+  type: 'n8n-nodes-base.set',
+  version: 3.4,
+  config: {
+    name: 'Restore Dry Run Result',
+    parameters: {
+      mode: 'manual',
+      includeOtherFields: false,
+      assignments: {
+        assignments: [
+          { id: 'config', name: 'config', type: 'object', value: expr('{{ $("Classify Metadata Dry Run").item.json.config }}') },
+          { id: 'mode', name: 'mode', type: 'string', value: expr('{{ $("Classify Metadata Dry Run").item.json.mode }}') },
+          { id: 'results', name: 'classification_results', type: 'array', value: expr('{{ $("Classify Metadata Dry Run").item.json.classification_results }}') },
+          { id: 'exception-count', name: 'exception_count', type: 'number', value: expr('{{ $("Classify Metadata Dry Run").item.json.exception_count }}') },
+          { id: 'audit-status', name: 'audit_status', type: 'string', value: expr('{{ $("Classify Metadata Dry Run").item.json.audit_status }}') },
+          { id: 'outlook-patch-status', name: 'outlook_patch_status', type: 'string', value: expr('{{ $("Classify Metadata Dry Run").item.json.outlook_patch_status }}') },
+          { id: 'readiness-errors', name: 'readiness_errors', type: 'array', value: expr('{{ $("Classify Metadata Dry Run").item.json.readiness_errors }}') }
+        ]
+      }
     }
   }
 });
@@ -1319,7 +1360,7 @@ export default workflow('email-categorizer', 'Email Categorizer')
   .to(prepareMessages)
   .to(classifyMessages)
   .to(hasException
-    .onTrue(slackException.to(respondDryRun))
+    .onTrue(slackException.to(restoreDryRunResult).to(respondDryRun))
     .onFalse(respondDryRun));
 `;
 
@@ -1713,18 +1754,19 @@ await mcp('initialize', {
 
 for (const item of workflows) {
   const validation = await tool('validate_workflow', { code: item.code });
-  if (validation.structuredContent?.valid === false) {
+  const validationContent = getStructuredContent(validation);
+  if (validationContent.valid === false) {
     console.log(JSON.stringify(validation, null, 2));
     throw new Error(`Validation failed for ${item.name}`);
   }
 
   const exact = await tool('search_workflows', { query: item.name, limit: 20 });
-  let existing = exact.structuredContent?.data?.find((workflowItem) => workflowItem.name === item.name);
+  let existing = getStructuredContent(exact).data?.find((workflowItem) => workflowItem.name === item.name);
   let legacyExisting;
 
   if (!existing && item.legacyQuery) {
     const legacy = await tool('search_workflows', { query: item.legacyQuery, limit: 20 });
-    legacyExisting = legacy.structuredContent?.data?.find((workflowItem) => workflowItem.name === item.legacyQuery);
+    legacyExisting = getStructuredContent(legacy).data?.find((workflowItem) => workflowItem.name === item.legacyQuery);
   }
 
   if (existing) {
@@ -1741,7 +1783,8 @@ for (const item of workflows) {
       name: item.name,
       description: item.description,
     });
-    const workflowId = created.structuredContent?.workflow?.id || created.structuredContent?.id || 'unknown';
+    const createdContent = getStructuredContent(created);
+    const workflowId = createdContent.workflow?.id || createdContent.id || 'unknown';
     console.log(`created ${item.name} (${workflowId})`);
 
     if (legacyExisting) {

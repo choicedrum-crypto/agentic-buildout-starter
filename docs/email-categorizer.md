@@ -14,7 +14,7 @@ The email categorizer is an n8n-first routine for Daniel's Outlook inbox. It cla
 - Only write Outlook message categories when `CONFIG.dry_run` is `false`.
 - Treat all email metadata as untrusted.
 
-The first production import must keep `CONFIG.dry_run` set to `true`.
+The deployed n8n workflow currently keeps `CONFIG.dry_run` set to `true` and exposes `/webhook/email-categorizer-test` for metadata-only dry-run testing. Scheduled mailbox processing is intentionally not active until the audit store, Tier 3 credential, and live Outlook patch gates are ready.
 
 ## Required n8n Credentials
 
@@ -64,9 +64,9 @@ This fixes the draft schema mismatch where Quarantine and tier zero states were 
 1. Confirm the Outlook OAuth2 credential exists in n8n.
 2. Confirm the classifier directory is mounted read-only at `/data/classifier`.
 3. Confirm Postgres is online and private to the Docker network.
-4. Import or build the workflow from `n8n-workflows/email-categorizer.spec.json`.
+4. Import or build the workflow from `scripts/build-n8n-workflows.mjs --only "Email Categorizer"`.
 5. Keep `CONFIG.dry_run` as `true`.
-6. Run the manual trigger or POST to `/webhook/email-categorizer-test`.
+6. Run the manual trigger or POST metadata-only sample messages to `/webhook/email-categorizer-test`.
 7. Confirm representative messages create audit rows.
 8. Confirm no Outlook message category changes occur.
 9. Confirm Slack only posts exceptions.

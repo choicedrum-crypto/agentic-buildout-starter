@@ -63,6 +63,7 @@ Use this checklist before trusting the automation with real work.
 ## Email Categorizer Dry Run
 
 - Confirm Microsoft Outlook OAuth2 credential exists in n8n.
+- Confirm the `Email Categorizer` workflow exists in n8n and `/webhook/email-categorizer-test` returns dry-run classification JSON.
 - Confirm the classifier directory is mounted read-only into n8n.
 - Confirm the dedicated classifier Postgres database is reachable from n8n.
 - Validate Outlook category labels match the `CONFIG` category map.
