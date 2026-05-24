@@ -1823,32 +1823,38 @@ export default workflow('deployment-result-plane-slack', 'Deployment Result to P
 let workflows = [
   {
     name: 'Plane Ready to GitHub Issue',
+    workflowId: 'MZSkpKTSDbrhvRrI',
     legacyQuery: 'plane-ready-to-github-issue.spec',
     code: planeReadyWorkflow,
     description: 'Receives Plane Ready webhooks, creates a Codex-ready GitHub issue, and comments the GitHub link back to Plane.',
   },
   {
     name: 'GitHub PR to Slack Review',
+    workflowId: 'MO6tY2Q6ASh3OG7c',
     code: prReviewWorkflow,
     description: 'Receives GitHub PR webhooks and posts a Slack review message with the PR merge link.',
   },
   {
     name: 'Deployment Result to Plane and Slack',
+    workflowId: 'dGC6BUgoR9ZlqtAr',
     code: deploymentWorkflow,
     description: 'Receives GitHub deployment workflow results, updates Plane status when resolved, and notifies Slack.',
   },
   {
     name: 'GitHub PR Feedback to Codex Revision Queue',
+    workflowId: 'Vjt6XjFa84cHbs7B',
     code: prFeedbackWorkflow,
     description: 'Receives /codex revise PR comments, moves Plane back to In Progress, and notifies Slack that Codex should revise the PR branch.',
   },
   {
     name: 'Website Checker',
+    workflowId: '6B5ORkypKRcbX0YX',
     code: websiteCheckerWorkflow,
     description: 'Runs an n8n scheduled website availability check for http://www.tciallc.com/ and alerts Slack when it fails.',
   },
   {
     name: 'Email Categorizer',
+    workflowId: 'jvJm59fD1uO8gBfD',
     code: emailCategorizerWorkflow,
     description: 'Dry-run-first Outlook Eisenhower classifier workflow with safe test webhook and production activation gates.',
   },
@@ -1884,7 +1890,9 @@ for (const item of workflows) {
   }
 
   const exact = await tool('search_workflows', { query: item.name, limit: 20 });
-  let existing = getStructuredContent(exact).data?.find((workflowItem) => workflowItem.name === item.name);
+  let existing = item.workflowId
+    ? { id: item.workflowId, name: item.name }
+    : getStructuredContent(exact).data?.find((workflowItem) => workflowItem.name === item.name);
   let legacyExisting;
 
   if (!existing && item.legacyQuery) {
