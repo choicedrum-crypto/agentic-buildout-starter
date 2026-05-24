@@ -17,6 +17,8 @@ Use this checklist before trusting the automation with real work.
 - Send a sample Plane payload where state is `Ready`; expect one GitHub issue.
 - Send the same Ready payload again; expect no duplicate GitHub issue.
 - Confirm repeated Plane Ready events return the existing GitHub issue link instead of creating a second issue.
+- Send two Ready payloads at nearly the same time; expect at most one open canonical GitHub issue after duplicate cleanup completes.
+- Confirm the `plane_ready_issue_locks` n8n Data Table records the canonical GitHub issue URL keyed by `plane_issue_id`.
 - Confirm Plane receives a GitHub issue link comment or custom field update.
 - Confirm a failed GitHub API call leaves Plane in `Ready` and creates a visible failure note where possible.
 

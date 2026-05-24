@@ -70,7 +70,7 @@ const config = node({
       includeOtherFields: true,
       assignments: {
         assignments: [
-          { id: 'config-object', name: 'config', type: 'object', value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", plane_api_base_url: "https://api.plane.so", plane_workspace_slug: "tcia", plane_project_id: "a0edb37d-263d-40c0-a34b-f77bbe9ba85d", plane_project_identifier: "TCIA", plane_ready_state_id: "372009ad-e7bc-4639-9390-5540a123e435", plane_ready_state_name: "Ready", plane_signature_validation: "pending-secret-credential", public_n8n_base_url: "https://n8n.tradecredit.agency" } }}') }
+          { id: 'config-object', name: 'config', type: 'object', value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", plane_api_base_url: "https://api.plane.so", plane_workspace_slug: "tcia", plane_project_id: "a0edb37d-263d-40c0-a34b-f77bbe9ba85d", plane_project_identifier: "TCIA", plane_ready_state_id: "372009ad-e7bc-4639-9390-5540a123e435", plane_ready_state_name: "Ready", plane_ready_lock_table_id: "elEXsB0XF3eRoKKf", plane_ready_lock_table_name: "plane_ready_issue_locks", plane_signature_validation: "pending-secret-credential", public_n8n_base_url: "https://n8n.tradecredit.agency" } }}') }
         ]
       }
     }
@@ -192,7 +192,7 @@ const value = $json;
 let existingUrl = original.existing_github_issue_url || '';
 const issues = Array.isArray(value.items) ? value.items : [];
 const exactIssues = issues
-  .filter((issue) => String(issue.body || '').includes('plane_issue_id: ' + original.plane_issue_id))
+  .filter((issue) => !issue.pull_request && String(issue.body || '').includes('plane_issue_id: ' + original.plane_issue_id))
   .sort((a, b) => Number(b.number || 0) - Number(a.number || 0));
 const openIssue = exactIssues.find((issue) => String(issue.state || '').toLowerCase() === 'open');
 if (openIssue?.html_url) {
@@ -231,6 +231,19 @@ const createIssue = node({
   }
 });
 
+const waitForGitHubIndex = node({
+  type: 'n8n-nodes-base.wait',
+  version: 1.1,
+  config: {
+    name: 'Wait for GitHub Search Consistency',
+    parameters: {
+      resume: 'timeInterval',
+      amount: 20,
+      unit: 'seconds'
+    }
+  }
+});
+
 const searchCanonicalGitHubIssue = node({
   type: 'n8n-nodes-base.httpRequest',
   version: 4.4,
@@ -258,10 +271,10 @@ const original = $('Normalize Plane Payload').item.json;
 const created = $('Create GitHub Issue').item.json;
 const issues = Array.isArray($json.items) ? $json.items : [];
 const exactIssues = issues
-  .filter((issue) => String(issue.body || '').includes('plane_issue_id: ' + original.plane_issue_id))
+  .filter((issue) => !issue.pull_request && String(issue.body || '').includes('plane_issue_id: ' + original.plane_issue_id))
   .sort((a, b) => Number(b.number || 0) - Number(a.number || 0));
 const openIssues = exactIssues.filter((issue) => String(issue.state || '').toLowerCase() === 'open');
-const canonical = openIssues[0] || created;
+const canonical = openIssues.sort((a, b) => Number(a.number || 0) - Number(b.number || 0))[0] || created;
 const duplicateCreated = Boolean(created.number && canonical.number && Number(created.number) !== Number(canonical.number));
 return {
   json: {
@@ -275,6 +288,83 @@ return {
   },
 };
 \`
+    }
+  }
+});
+
+const upsertIssueLock = node({
+  type: 'n8n-nodes-base.dataTable',
+  version: 1.1,
+  config: {
+    name: 'Upsert Plane Issue Lock',
+    parameters: {
+      resource: 'row',
+      operation: 'upsert',
+      dataTableId: { __rl: true, mode: 'id', value: 'elEXsB0XF3eRoKKf', cachedResultName: 'plane_ready_issue_locks' },
+      matchType: 'allConditions',
+      filters: {
+        conditions: [
+          { keyName: 'plane_issue_id', condition: 'eq', keyValue: expr('{{ $("Normalize Plane Payload").item.json.plane_issue_id }}') }
+        ]
+      },
+      columns: {
+        mappingMode: 'defineBelow',
+        matchingColumns: ['plane_issue_id'],
+        value: {
+          plane_issue_id: expr('{{ $("Normalize Plane Payload").item.json.plane_issue_id }}'),
+          plane_issue_key: expr('{{ $("Normalize Plane Payload").item.json.plane_issue_key }}'),
+          status: expr('{{ $("Resolve Canonical GitHub Issue").item.json.duplicate_created ? "deduped" : "active" }}'),
+          github_issue_url: expr('{{ $("Resolve Canonical GitHub Issue").item.json.canonical_github_issue_url }}'),
+          github_issue_number: expr('{{ Number($("Resolve Canonical GitHub Issue").item.json.canonical_github_issue_number || 0) }}'),
+          delivery_id: expr('{{ $json.headers?.["x-plane-delivery"] || $json.headers?.["x-webhook-delivery"] || "" }}'),
+          last_seen_at: expr('{{ new Date().toISOString() }}')
+        },
+        schema: [
+          { id: 'plane_issue_id', displayName: 'plane_issue_id', required: true, defaultMatch: true, display: true, type: 'string', canBeUsedToMatch: true },
+          { id: 'plane_issue_key', displayName: 'plane_issue_key', display: true, type: 'string' },
+          { id: 'status', displayName: 'status', display: true, type: 'string' },
+          { id: 'github_issue_url', displayName: 'github_issue_url', display: true, type: 'string' },
+          { id: 'github_issue_number', displayName: 'github_issue_number', display: true, type: 'number' },
+          { id: 'delivery_id', displayName: 'delivery_id', display: true, type: 'string' },
+          { id: 'last_seen_at', displayName: 'last_seen_at', display: true, type: 'date' }
+        ]
+      }
+    }
+  }
+});
+
+const duplicateCreated = ifElse({
+  version: 2.3,
+  config: {
+    name: 'Duplicate Issue Created?',
+    parameters: {
+      conditions: {
+        options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
+        conditions: [{ leftValue: expr('{{ String($("Resolve Canonical GitHub Issue").item.json.duplicate_created) }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'true' }],
+        combinator: 'and'
+      }
+    }
+  }
+});
+
+const closeDuplicateIssue = node({
+  type: 'n8n-nodes-base.github',
+  version: 1.1,
+  config: {
+    name: 'Close Duplicate GitHub Issue',
+    credentials: { githubApi: newCredential('${githubCredential}') },
+    parameters: {
+      resource: 'issue',
+      operation: 'edit',
+      authentication: 'accessToken',
+      owner: { __rl: true, mode: 'name', value: 'choicedrum-crypto' },
+      repository: { __rl: true, mode: 'name', value: 'agentic-buildout-starter' },
+      issueNumber: expr('{{ Number($("Resolve Canonical GitHub Issue").item.json.created_github_issue_number) }}'),
+      editFields: {
+        state: 'closed',
+        state_reason: 'not_planned',
+        labels: [{ label: 'plane' }, { label: 'duplicate' }, { label: 'automation' }]
+      }
     }
   }
 });
@@ -295,7 +385,7 @@ const commentPlane = node({
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
-      jsonBody: expr('{{ { comment_html: "<p>GitHub issue " + ($json.duplicate_created ? "resolved to existing open issue" : ($json.closed_github_issue_count ? "created because previous linked issue was closed" : "created")) + ": " + $json.canonical_github_issue_url + "</p>", comment_json: {}, access: "INTERNAL", external_source: "github", external_id: String($json.canonical_github_issue_number || "") } }}')
+      jsonBody: expr('{{ { comment_html: "<p>GitHub issue " + ($("Resolve Canonical GitHub Issue").item.json.duplicate_created ? "deduped to canonical issue" : ($("Resolve Canonical GitHub Issue").item.json.closed_github_issue_count ? "created because previous linked issue was closed" : "created")) + ": " + $("Resolve Canonical GitHub Issue").item.json.canonical_github_issue_url + "</p>", comment_json: {}, access: "INTERNAL", external_source: "github", external_id: String(($("Resolve Canonical GitHub Issue").item.json.canonical_github_issue_number || "github") + "-" + Date.now()) } }}')
     }
   }
 });
@@ -331,7 +421,9 @@ export default workflow('plane-ready-github-issue', 'Plane Ready to GitHub Issue
   .to(normalize)
   .to(isReady
     .onTrue(searchExistingGitHubIssues.to(detectExistingGitHubIssue).to(noExistingIssue
-      .onTrue(createIssue.to(searchCanonicalGitHubIssue).to(resolveCanonicalGitHubIssue).to(commentPlane).to(respondCreated))
+      .onTrue(createIssue.to(waitForGitHubIndex).to(searchCanonicalGitHubIssue).to(resolveCanonicalGitHubIssue).to(upsertIssueLock).to(duplicateCreated
+        .onTrue(closeDuplicateIssue.to(commentPlane).to(respondCreated))
+        .onFalse(commentPlane.to(respondCreated))))
       .onFalse(respondDuplicate)))
     .onFalse(respondIgnored));
 `;

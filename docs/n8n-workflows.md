@@ -19,8 +19,11 @@ Core logic:
 4. Check for an existing GitHub issue URL on the Plane task.
 5. Search GitHub for the Plane issue ID to avoid duplicate issues.
 6. Create a GitHub issue with a Codex-ready body.
-7. Add the GitHub issue link back to Plane as a comment or custom field.
-8. Optionally notify Slack that work is queued.
+7. Wait briefly and re-search GitHub so simultaneous Ready deliveries can converge on one canonical open issue.
+8. Persist the canonical issue in the `plane_ready_issue_locks` n8n Data Table keyed by `plane_issue_id`.
+9. Close any just-created duplicate GitHub issue that is not canonical.
+10. Add the GitHub issue link back to Plane as a comment or custom field.
+11. Optionally notify Slack that work is queued.
 
 The GitHub issue body must include:
 - Plane task URL and ID.
@@ -28,6 +31,11 @@ The GitHub issue body must include:
 - Acceptance criteria.
 - Codex instructions to create a branch, test, open a PR, and not deploy.
 - Automation metadata so later workflows can reconnect GitHub activity to Plane.
+
+Duplicate handling:
+- Normal retries return the existing open GitHub issue.
+- Simultaneous Ready deliveries may briefly create more than one issue before GitHub search indexes both.
+- The workflow waits, re-searches, chooses the lowest-number open issue as canonical, stores it in `plane_ready_issue_locks`, and closes any just-created duplicate.
 
 ## Workflow B: GitHub PR to Slack Review
 

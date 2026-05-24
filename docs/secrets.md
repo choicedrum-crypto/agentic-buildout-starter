@@ -44,6 +44,8 @@ Do not use enterprise/global n8n variables for this starter. Each workflow must 
 - `slack_review_channel`
 - `slack_deploy_channel`
 - `public_n8n_base_url`, default `https://n8n.tradecredit.agency`
+- `plane_ready_lock_table_id`, n8n Data Table ID for `plane_ready_issue_locks`
+- `plane_ready_lock_table_name`, default `plane_ready_issue_locks`
 
 Email categorizer workflow CONFIG values:
 

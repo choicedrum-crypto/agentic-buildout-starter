@@ -36,6 +36,8 @@
         "plane_workspace_slug": "Plane workspace slug",
         "plane_project_id": "Plane project ID",
         "plane_ready_state_name": "Ready",
+        "plane_ready_lock_table_id": "n8n Data Table ID for plane_ready_issue_locks",
+        "plane_ready_lock_table_name": "plane_ready_issue_locks",
         "plane_github_issue_field_name": "GitHub Issue",
         "slack_queue_channel": "Optional Slack channel for queued work",
         "public_n8n_base_url": "https://n8n.tradecredit.agency"
@@ -99,6 +101,42 @@
       "on_error": "Notify Slack if configured, add Plane comment if possible, respond 502."
     },
     {
+      "id": "wait_for_github_index",
+      "type": "Wait",
+      "name": "Wait for GitHub Search Consistency",
+      "duration": "20 seconds",
+      "purpose": "Allow simultaneous GitHub issue creates to become visible before canonical duplicate cleanup."
+    },
+    {
+      "id": "resolve_canonical_issue",
+      "type": "Code",
+      "name": "Resolve Canonical GitHub Issue",
+      "notes": "Select the lowest-number open issue for the Plane issue ID as canonical."
+    },
+    {
+      "id": "upsert_issue_lock",
+      "type": "Data Table",
+      "name": "Upsert Plane Issue Lock",
+      "table": "plane_ready_issue_locks",
+      "key": "plane_issue_id",
+      "columns": [
+        "plane_issue_id",
+        "plane_issue_key",
+        "status",
+        "github_issue_url",
+        "github_issue_number",
+        "delivery_id",
+        "last_seen_at"
+      ]
+    },
+    {
+      "id": "close_duplicate_issue",
+      "type": "GitHub",
+      "name": "Close Duplicate GitHub Issue",
+      "condition": "A newly created issue is not the canonical open issue.",
+      "request": "Edit duplicate issue to state closed with state_reason not_planned."
+    },
+    {
       "id": "update_plane_with_issue",
       "type": "HTTP Request",
       "name": "Update Plane with GitHub issue link",
@@ -127,6 +165,8 @@
     "Never create a second GitHub issue if a Plane issue already has an open GitHub issue URL.",
     "Search GitHub by Plane issue ID before creating a new issue, including closed issues.",
     "If only closed GitHub issues exist for the Plane issue, create a new replacement issue and comment that the previous link was closed.",
+    "Persist the canonical issue in the plane_ready_issue_locks Data Table keyed by plane_issue_id.",
+    "After creating an issue, wait briefly, re-search GitHub, and close any just-created duplicate that is not the canonical open issue.",
     "On GitHub API failure, leave Plane in Ready and add a failure comment when possible.",
     "On Plane update failure after GitHub issue creation, notify Slack and return the GitHub issue URL for manual repair.",
     "Do not include API tokens or webhook secrets in Slack or Plane comments."
