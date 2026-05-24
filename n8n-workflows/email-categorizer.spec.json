@@ -3,11 +3,11 @@
   "version": 1,
   "runtime": "Hostinger n8n",
   "purpose": "Classify unread uncategorized Outlook inbox messages into Eisenhower categories, audit every attempt, and notify Slack only on exceptions.",
-  "status": "ready_for_dry_run_import",
+  "status": "deployed_dry_run_test_webhook",
   "trigger": {
-    "type": "schedule, manual, and test webhook",
+    "type": "manual and test webhook; schedule gated until production dependencies are ready",
     "source": "n8n",
-    "interval": "Every 1 minute",
+    "interval": "Pending production activation",
     "manual": "Manual dry-run validation trigger",
     "test_path": "/webhook/email-categorizer-test"
   },
@@ -60,7 +60,7 @@
     {
       "id": "schedule",
       "type": "Schedule Trigger",
-      "name": "Every 1 minute"
+      "name": "Pending production activation"
     },
     {
       "id": "config",
