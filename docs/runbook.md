@@ -45,10 +45,13 @@ If the deployment comment is missing but Slack and the Plane state update succee
 
 ## Recover from duplicates
 
-1. Keep the oldest valid GitHub issue created for the Plane task.
-2. Close duplicate GitHub issues as `not planned`.
-3. Leave the Plane comment that points to the canonical GitHub issue.
-4. Re-run the Plane Ready event only after confirming the duplicate guard returns the existing link.
+1. Check the `plane_ready_issue_locks` n8n Data Table for the Plane issue ID.
+2. Keep the lowest-number open GitHub issue as canonical unless the table points to a different open issue.
+3. Close duplicate GitHub issues as `not planned`.
+4. Leave the Plane comment that points to the canonical GitHub issue.
+5. Re-run the Plane Ready event only after confirming the duplicate guard returns the existing link.
+
+The Plane Ready workflow waits after issue creation, re-searches GitHub, stores the canonical issue in `plane_ready_issue_locks`, and closes any just-created duplicate. If duplicates remain open, inspect the `Close Duplicate GitHub Issue` node and confirm it is bound to the `GitHub account` credential.
 
 ## Recover from failed deploy
 
