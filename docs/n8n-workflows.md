@@ -72,20 +72,24 @@ Trigger:
 Core logic:
 1. Continue only when the deploy workflow has completed.
 2. Resolve the merged PR and linked Plane task from the deployment commit and PR body.
-3. If deployment succeeded, move Plane to `Done` and add the workflow run link.
-4. If deployment succeeded and both a Plane task and linked GitHub issue are resolved from the PR body, comment on that issue and close it as completed.
-5. If deployment failed, move Plane to `Blocked` or `Failed` and add the run link.
-6. Notify Slack with the final deployment result.
+3. When the deploy workflow starts, move Plane to `Deploying`.
+4. The GitHub deploy job validates specs, verifies n8n spec changes have matching builder/import code, and publishes n8n workflows from `scripts/build-n8n-workflows.mjs`.
+5. If deployment and verification succeeded, move Plane to `Done` and add the workflow run link.
+6. If deployment succeeded and both a Plane task and linked GitHub issue are resolved from the PR body, comment on that issue and close it as completed.
+7. If deployment failed, move Plane out of `Deploying` and add the run link. Use `Review` for code/test failures and `Blocked` for missing external prerequisites.
+8. Notify Slack with the final deployment result.
 
 PR body handoff:
 - Codex PRs created from Plane tasks should include `plane_issue_id: <uuid>`.
 - Include the Plane URL when available.
 - The deployment-result workflow uses this metadata after merge to update the correct Plane task.
+- n8n workflow PRs are not considered deployable when they only add or edit `n8n-workflows/*.json` specs. They must also update the builder/import implementation so the workflow is published before Plane can become `Done`.
 
 Safe behavior:
 - If Plane cannot be resolved, still notify Slack with the GitHub Actions run URL.
 - If Slack fails, let the GitHub webhook retry.
 - Do not close linked GitHub issues on failed deploys or PRs that are not Plane-backed.
+- Do not move Plane to `Done` until the post-merge publish and verification job has succeeded.
 
 ## Workflow D: GitHub PR Feedback to Codex Revision Queue
 

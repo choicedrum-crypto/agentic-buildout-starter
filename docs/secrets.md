@@ -7,6 +7,8 @@ Keep secrets in GitHub Secrets or n8n credentials only. Do not commit `.env` fil
 Add these in GitHub: repo -> Settings -> Secrets and variables -> Actions.
 
 - `SLACK_WEBHOOK_URL` - Slack incoming webhook used by the deploy-after-merge workflow for deployment results.
+- `N8N_BASE_URL` - Hostinger n8n API/MCP endpoint used by the post-merge deploy job to publish workflows.
+- `N8N_API_KEY` - n8n API key used by the post-merge deploy job. Store only in GitHub Secrets.
 
 Optional, depending on how you later replace the deploy placeholder:
 
@@ -38,6 +40,7 @@ Do not use enterprise/global n8n variables for this starter. Each workflow must 
 - `plane_project_id`
 - `plane_ready_state_name`, default `Ready`
 - `plane_review_state_name`, default `Review`
+- `plane_deploying_state_name`, default `Deploying`
 - `plane_in_progress_state_name`, default `In Progress`
 - `plane_done_state_name`, default `Done`
 - `plane_failed_state_name`, default `Blocked`

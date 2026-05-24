@@ -23,14 +23,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Validate automation specs before deploy
         run: bash ./scripts/validate-workflows.sh
 
-      - name: Deploy application
-        run: |
-          echo "Deployment placeholder only."
-          echo "Replace this step with the production deploy command once the target app is defined."
+      - name: Verify n8n specs have publish implementation
+        env:
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: node ./scripts/verify-deployable-workflows.mjs
+
+      - name: Publish n8n workflows
+        env:
+          N8N_BASE_URL: ${{ secrets.N8N_BASE_URL }}
+          N8N_API_KEY: ${{ secrets.N8N_API_KEY }}
+        run: node ./scripts/build-n8n-workflows.mjs
 
   notify:
     name: Notify deployment result
