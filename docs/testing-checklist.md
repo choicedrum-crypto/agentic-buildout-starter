@@ -46,13 +46,16 @@ Use this checklist before trusting the automation with real work.
 
 - Merge a test PR.
 - Confirm `Deploy After Merge` starts from `main`.
-- Confirm the deploy placeholder does not run from Codex or n8n.
+- Confirm deployment does not run from Codex.
+- Confirm n8n moves Plane to `Deploying` when the GitHub deploy workflow starts.
+- Confirm the deploy job fails if `n8n-workflows/*.json` changed without a matching `scripts/build-n8n-workflows.mjs` change.
+- Confirm the deploy job publishes n8n workflows through `scripts/build-n8n-workflows.mjs` using GitHub Secrets.
 - Confirm deployment result resolves the merged PR's `plane_issue_id` when present.
 - Confirm Slack receives deployment success or failure.
-- Confirm n8n moves Plane to `Done` on success.
+- Confirm n8n moves Plane from `Deploying` to `Done` only on successful publish and verification.
 - Confirm n8n comments on and closes the linked GitHub source issue only after successful deploy.
 - Confirm n8n does not close a GitHub issue when the deploy PR lacks Plane metadata.
-- Confirm n8n moves Plane to `Blocked` or `Failed` on failure.
+- Confirm n8n moves Plane out of `Deploying` on failure.
 - Confirm failed deploys do not close the linked GitHub source issue.
 - Confirm Plane receives a deployment comment with the GitHub Actions run URL, commit SHA, status, and PR URL.
 - If the deployment comment is missing, confirm the `Comment on Plane with Deployment Result` node is manually bound to the `Plane Main` HTTP Header Auth credential in n8n.

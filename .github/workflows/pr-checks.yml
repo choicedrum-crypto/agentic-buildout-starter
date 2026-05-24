@@ -26,6 +26,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -34,6 +36,12 @@ jobs:
 
       - name: Validate workflow JSON
         run: bash ./scripts/validate-workflows.sh
+
+      - name: Verify n8n specs have publish implementation
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node ./scripts/verify-deployable-workflows.mjs
 
       - name: Check required documentation
         run: |

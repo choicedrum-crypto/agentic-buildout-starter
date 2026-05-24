@@ -1,15 +1,29 @@
 import fs from 'node:fs';
 
-const env = Object.fromEntries(
-  fs
-    .readFileSync('.env.local', 'utf8')
-    .split(/\r?\n/)
-    .filter((line) => /^[^#=]+=/.test(line))
-    .map((line) => {
-      const index = line.indexOf('=');
-      return [line.slice(0, index).trim(), line.slice(index + 1).trim()];
-    }),
-);
+function readLocalEnv() {
+  if (!fs.existsSync('.env.local')) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    fs
+      .readFileSync('.env.local', 'utf8')
+      .split(/\r?\n/)
+      .filter((line) => /^[^#=]+=/.test(line))
+      .map((line) => {
+        const index = line.indexOf('=');
+        return [line.slice(0, index).trim(), line.slice(index + 1).trim()];
+      }),
+  );
+}
+
+const env = { ...readLocalEnv(), ...process.env };
+
+for (const key of ['N8N_BASE_URL', 'N8N_API_KEY']) {
+  if (!env[key]) {
+    throw new Error(`${key} is required in the environment or .env.local`);
+  }
+}
 
 const endpoint = env.N8N_BASE_URL.replace(/\/$/, '');
 let id = 1;
@@ -1072,7 +1086,7 @@ const config = node({
             id: 'config-object',
             name: 'config',
             type: 'object',
-            value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", github_repo_full_name: "choicedrum-crypto/agentic-buildout-starter", github_default_branch: "main", github_deploy_workflow_name: "Deploy After Merge", github_deploy_workflow_file: "deploy.yml", production_branch: "main", github_signature_validation: "pending-secret-credential", plane_api_base_url: "https://api.plane.so", plane_workspace_slug: "tcia", plane_project_id: "a0edb37d-263d-40c0-a34b-f77bbe9ba85d", plane_project_identifier: "TCIA", plane_done_state_id: "9e8cb223-ee5d-4d52-89fc-1c0ffa900e70", plane_done_state_name: "Done", plane_failed_state_id: "8ea8d880-15b2-4201-8fbc-358ba54e5b54", plane_failed_state_name: "Blocked", plane_comment_access: "INTERNAL", slack_deploy_channel: "#workflow-builder", public_n8n_base_url: "https://n8n.tradecredit.agency", deployment_webhook_path: "github-deploy-result", deployment_webhook_url: "https://n8n.tradecredit.agency/webhook/github-deploy-result" } }}')
+            value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", github_repo_full_name: "choicedrum-crypto/agentic-buildout-starter", github_default_branch: "main", github_deploy_workflow_name: "Deploy After Merge", github_deploy_workflow_file: "deploy.yml", production_branch: "main", github_signature_validation: "pending-secret-credential", plane_api_base_url: "https://api.plane.so", plane_workspace_slug: "tcia", plane_project_id: "a0edb37d-263d-40c0-a34b-f77bbe9ba85d", plane_project_identifier: "TCIA", plane_deploying_state_id: "b3a0fb50-9ec4-4198-8def-c3f807be486a", plane_deploying_state_name: "Deploying", plane_review_state_id: "0948b422-5c0c-4c37-b34d-0a358e156a6f", plane_review_state_name: "Review", plane_done_state_id: "9e8cb223-ee5d-4d52-89fc-1c0ffa900e70", plane_done_state_name: "Done", plane_failed_state_id: "8ea8d880-15b2-4201-8fbc-358ba54e5b54", plane_failed_state_name: "Blocked", plane_comment_access: "INTERNAL", slack_deploy_channel: "#workflow-builder", public_n8n_base_url: "https://n8n.tradecredit.agency", deployment_webhook_path: "github-deploy-result", deployment_webhook_url: "https://n8n.tradecredit.agency/webhook/github-deploy-result" } }}')
           }
         ]
       }
@@ -1092,22 +1106,24 @@ const extract = node({
 const config = $json.config || {};
 const body = $json.body || $json;
 const run = body.workflow_run || {};
-const completed = run.name === 'Deploy After Merge' && run.status === 'completed';
+const isDeployWorkflow = run.name === 'Deploy After Merge';
+const completed = isDeployWorkflow && run.status === 'completed';
+const started = isDeployWorkflow && run.status !== 'completed';
 const success = run.conclusion === 'success';
 const text = JSON.stringify(body);
 const planeIssueId = text.match(/plane_issue_id:\\\\s*([A-Za-z0-9_-]+)/)?.[1] || '';
 const planeUrl = text.match(/https?:\\\\/\\\\/[^\\\\s)"]*plane[^\\\\s)"]*/i)?.[0] || '';
 const prNumber = run.pull_requests?.[0]?.number || run.display_title?.match(/\\\\(#(\\\\d+)\\\\)/)?.[1] || run.head_commit?.message?.match(/\\\\(#(\\\\d+)\\\\)/)?.[1] || '';
-const stateId = success ? config.plane_done_state_id : config.plane_failed_state_id;
+const stateId = started ? config.plane_deploying_state_id : (success ? config.plane_done_state_id : config.plane_failed_state_id);
 const message = [
-  'Deployment ' + (success ? 'succeeded' : 'failed'),
+  'Deployment ' + (started ? 'started' : (success ? 'succeeded' : 'failed')),
   'Repo: ' + (body.repository?.full_name || config.github_owner + '/' + config.github_repo),
   'Commit: ' + (run.head_sha || 'unknown'),
   'Run: ' + (run.html_url || 'not provided'),
   'Plane: ' + (planeUrl || planeIssueId || 'not resolved'),
-  'Plane status update: ' + (planeIssueId ? 'queued' : 'skipped, Plane task not resolved')
+  'Plane status update: ' + (planeIssueId ? (started ? 'Deploying queued' : 'queued') : 'skipped, Plane task not resolved')
 ].join('\\\\n');
-return { json: { ...$json, config, completed, success, deployment_status: success ? 'succeeded' : 'failed', run_url: run.html_url, head_sha: run.head_sha, repository: body.repository?.full_name, pr_number: String(prNumber || ''), plane_issue_id: planeIssueId, plane_url: planeUrl, plane_state_id: stateId, slack_message: message } };
+return { json: { ...$json, config, is_deploy_workflow: isDeployWorkflow, completed, started, success, deployment_status: started ? 'started' : (success ? 'succeeded' : 'failed'), run_url: run.html_url, head_sha: run.head_sha, repository: body.repository?.full_name, pr_number: String(prNumber || ''), plane_issue_id: planeIssueId, plane_url: planeUrl, plane_state_id: stateId, slack_message: message } };
 \`
     }
   }
@@ -1116,9 +1132,9 @@ return { json: { ...$json, config, completed, success, deployment_status: succes
 const isCompletedDeploy = ifElse({
   version: 2.3,
   config: {
-    name: 'Deploy Workflow Completed?',
+    name: 'Deploy Workflow Event?',
     parameters: {
-      conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ String($json.completed) }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'true' }], combinator: 'and' }
+      conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ String($json.is_deploy_workflow) }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'true' }], combinator: 'and' }
     }
   }
 });

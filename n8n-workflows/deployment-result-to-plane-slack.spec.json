@@ -2,7 +2,7 @@
   "name": "Deployment Result to Plane and Slack",
   "version": 1,
   "runtime": "Hostinger n8n",
-  "purpose": "Update Plane and Slack after the GitHub Actions deploy-after-merge workflow finishes.",
+  "purpose": "Move Plane tasks into Deploying when GitHub Actions deployment starts, then update Plane and Slack after the post-merge publish-and-verify job finishes.",
   "trigger": {
     "type": "webhook",
     "source": "GitHub",
@@ -39,6 +39,8 @@
         "github_repo": "GitHub repository name",
         "plane_workspace_slug": "Plane workspace slug",
         "plane_project_id": "Plane project ID",
+        "plane_deploying_state_name": "Deploying",
+        "plane_review_state_name": "Review",
         "plane_done_state_name": "Done",
         "plane_failed_state_name": "Blocked",
         "slack_deploy_channel": "Slack channel for deployment result messages",
@@ -54,8 +56,8 @@
     {
       "id": "filter_completed_deploy",
       "type": "IF",
-      "name": "Deploy workflow completed",
-      "condition": "workflow_run.name equals Deploy After Merge and workflow_run.status equals completed",
+      "name": "Deploy workflow event",
+      "condition": "workflow_run.name equals Deploy After Merge",
       "on_false": "Respond 204."
     },
     {
@@ -64,6 +66,7 @@
       "name": "Extract deployment context",
       "outputs": {
         "conclusion": "workflow_run.conclusion",
+        "status": "workflow_run.status",
         "run_url": "workflow_run.html_url",
         "head_sha": "workflow_run.head_sha",
         "repository": "repository.full_name",
@@ -85,11 +88,18 @@
       "on_error": "Continue with Slack-only notification."
     },
     {
+      "id": "update_plane_deploying",
+      "type": "HTTP Request",
+      "name": "Move Plane task to Deploying",
+      "condition": "workflow_run.status is not completed and plane_issue_id exists",
+      "request": "Use Plane API to move task to Deploying before publish and verification complete."
+    },
+    {
       "id": "update_plane_success",
       "type": "HTTP Request",
       "name": "Move Plane task to Done",
-      "condition": "conclusion equals success and plane_issue_id exists",
-      "request": "Use Plane API to move task to Done and add deployment run link."
+      "condition": "workflow_run.status equals completed, conclusion equals success, and plane_issue_id exists",
+      "request": "Use Plane API to move task to Done only after the post-merge deploy job publishes n8n workflows and all verification steps pass."
     },
     {
       "id": "comment_github_issue_completed",
@@ -110,9 +120,9 @@
     {
       "id": "update_plane_failure",
       "type": "HTTP Request",
-      "name": "Move Plane task to Blocked or Failed",
-      "condition": "conclusion is not success and plane_issue_id exists",
-      "request": "Use Plane API to move task to Blocked/Failed and add deployment run link."
+      "name": "Move Plane task to Blocked or Review",
+      "condition": "workflow_run.status equals completed, conclusion is not success, and plane_issue_id exists",
+      "request": "Use Plane API to move task out of Deploying and add the deployment run link. Use Review for code/test failures and Blocked for missing external prerequisites."
     },
     {
       "id": "send_slack_deploy_result",
@@ -132,7 +142,10 @@
     "slack_deploy_message": "Deployment {{deployment_status}}\nRepo: {{repository}}\nCommit: {{head_sha}}\nRun: {{run_url}}\nPlane: {{plane_url}}\nPlane status update: {{plane_update_status}}"
   },
   "safe_failure_handling": [
-    "Only process completed Deploy After Merge workflow runs.",
+    "Process only Deploy After Merge workflow_run events.",
+    "Move Plane to Deploying when the GitHub deploy workflow starts.",
+    "The GitHub deploy workflow must publish n8n workflows from the repo builder before a successful result can be treated as Done.",
+    "Fail deploys when n8n workflow specs changed without matching builder/import implementation.",
     "If Plane cannot be resolved, still notify Slack with the deployment result and run URL.",
     "If Plane update fails, Slack message must include manual repair instructions.",
     "Close the linked GitHub issue only after a successful deploy with both a resolved Plane issue ID and a resolved GitHub issue number.",
