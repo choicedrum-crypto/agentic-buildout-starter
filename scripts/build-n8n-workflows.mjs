@@ -301,6 +301,10 @@ if (needsTier3Count) {
 const allowed = new Set(['Q1', 'Q2', 'Q3', 'Q4', 'QR']);
 const byKey = new Map(tier3Results.map((result) => [String(result.key || ''), result]));
 const results = baseResults.map((result) => {
+  if (result.confidence >= config.tier3_confidence_threshold || !needsTier3Count) {
+    return { ...result, tier3_status: 'skipped', error_text: null };
+  }
+
   const tier3 = byKey.get(String(result.tier3_key || ''));
   if (!tier3 || !allowed.has(tier3.quadrant)) {
     const missingError = !tier3
