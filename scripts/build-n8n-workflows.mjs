@@ -197,6 +197,7 @@ const baseResults = messages.map((message, index) => {
   const messageId = message.id || message.internetMessageId || 'message-' + (index + 1);
   return {
     message_id: messageId,
+    tier3_key: 'm' + index,
     internetMessageId: message.internetMessageId || null,
     subject: message.subject || '',
     from: addressOf(message.from),
@@ -225,14 +226,14 @@ return [{
       messages: [
         {
           role: 'system',
-          content: 'Classify email metadata into Q1, Q2, Q3, Q4, or QR. Return strict JSON only: {"results":[{"message_id":"...","quadrant":"Q1","confidence":0.0,"reason":"..."}]}',
+          content: 'Classify email metadata into Q1, Q2, Q3, Q4, or QR. Return strict JSON only: {"results":[{"key":"m0","quadrant":"Q1","confidence":0.0,"reason":"..."}]}. Echo the short key exactly.',
         },
         {
           role: 'user',
           content: JSON.stringify({
             allowed_quadrants: ['Q1', 'Q2', 'Q3', 'Q4', 'QR'],
             messages: needsTier3.map((result) => ({
-              message_id: result.message_id,
+              key: result.tier3_key,
               subject: result.subject,
               from: result.from,
               receivedDateTime: result.receivedDateTime,
@@ -292,11 +293,18 @@ if (needsTier3Count) {
 }
 
 const allowed = new Set(['Q1', 'Q2', 'Q3', 'Q4', 'QR']);
-const byId = new Map(tier3Results.map((result) => [result.message_id, result]));
+const byKey = new Map(tier3Results.map((result) => [String(result.key || ''), result]));
 const results = baseResults.map((result) => {
-  const tier3 = byId.get(result.message_id);
+  const tier3 = byKey.get(String(result.tier3_key || ''));
   if (!tier3 || !allowed.has(tier3.quadrant)) {
-    return { ...result, tier3_status: tier3Status, error_text: tier3Error };
+    const missingError = !tier3
+      ? 'Ollama did not return a matching key for this message.'
+      : 'Ollama returned an invalid quadrant for this message.';
+    return {
+      ...result,
+      tier3_status: 'failed_local_llm_missing_result',
+      error_text: tier3Error || missingError,
+    };
   }
   return {
     ...result,
