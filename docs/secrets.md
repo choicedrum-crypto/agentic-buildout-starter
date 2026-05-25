@@ -25,10 +25,12 @@ Optional, depending on how you later replace the deploy placeholder:
 Create these in Hostinger n8n credentials:
 
 - GitHub API token or GitHub App credential with issue, pull request, and check read permissions plus issue write permissions.
+- GitHub HTTP bearer credential named `GitHub HTTP Bearer` for REST endpoints that are not covered by the n8n GitHub node, including Slack approval PR merge requests.
 - GitHub webhook secret for validating `X-Hub-Signature-256`. The current builder marks this as `pending-secret-credential` until a credential-access pattern is added in n8n.
 - Plane API token with issue read/write permissions.
 - Plane webhook secret for validating `X-Plane-Signature`. The current builder captures raw webhook bodies but leaves validation marked `pending-secret-credential` until the secret can be read from an n8n credential.
 - Slack bot token or Slack incoming webhook for review and status messages.
+- Slack HTTP bearer credential named `Slack Bot HTTP Bearer` for Block Kit approval messages via `chat.postMessage`.
 - Microsoft Outlook OAuth2 credential for the email categorizer workflow.
 - Postgres credential named `Email Categorizer Postgres` for the dedicated email classifier audit database.
 - DBHub direct Ollama endpoint/model for Tier 3 email classification. The current endpoint is `http://100.66.221.24:11434` over Tailscale and does not require a LiteLLM credential.
@@ -55,6 +57,10 @@ Do not use enterprise/global n8n variables for this starter. Each workflow must 
 - `public_n8n_base_url`, default `https://n8n.tradecredit.agency`
 - `plane_ready_lock_table_id`, n8n Data Table ID for `plane_ready_issue_locks`
 - `plane_ready_lock_table_name`, default `plane_ready_issue_locks`
+- `openclaw_dispatch_url`, OpenClaw endpoint for GitHub issue to agent dispatch
+- `plane_building_state_name`, default `Building`
+- `plane_approved_state_name`, default `Approved`
+- `plane_changes_state_name`, default `Changes Requested`
 
 Email categorizer workflow CONFIG values:
 

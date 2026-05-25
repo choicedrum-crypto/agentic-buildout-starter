@@ -543,6 +543,8 @@ async function createEmailWorkflowViaRest(name) {
 
 const planeApiCredential = 'Plane Main';
 const githubCredential = 'GitHub account';
+const githubHttpCredential = 'GitHub HTTP Bearer';
+const slackHttpCredential = 'Slack Bot HTTP Bearer';
 
 const planeReadyWorkflow = `
 import { workflow, node, trigger, newCredential, ifElse, expr } from '@n8n/workflow-sdk';
@@ -594,11 +596,13 @@ const stateObject = issue.state || issue.status || body.state || body.status || 
 const stateValue = stateObject.name || issue.state_name || issue.status_name || body.state_name || body.status_name || stateObject || '';
 const stateId = stateObject.id || stateObject.uuid || issue.state_id || issue.state || body.state_id || body.state || '';
 const planeIssueId = issue.id || issue.uuid || issue.issue_id || issue.work_item_id || body.issue_id || body.work_item_id || '';
+const planeProjectId = issue.project_id || issue.project?.id || issue.project?.uuid || body.project_id || body.project?.id || config.plane_project_id || '';
 const planeIssueKey = issue.identifier || issue.sequence_id || issue.key || body.issue_key || '';
 const title = issue.name || issue.title || body.title || 'Plane task ready for Codex';
 const description = issue.description_html || issue.description_stripped || issue.description || body.description || '';
 const planeUrl = issue.url || issue.web_url || body.url || body.issue_url || '';
 const existing = issue.github_issue_url || issue.external_id || body.github_issue_url || '';
+const runner = issue.runner || issue.properties?.runner || issue.custom_properties?.runner || body.runner || 'auto';
 const readyByName = String(stateValue).toLowerCase() === String(config.plane_ready_state_name || 'Ready').toLowerCase();
 const readyById = String(stateId) === String(config.plane_ready_state_id || '');
 const ready = readyByName || readyById;
@@ -606,6 +610,7 @@ const issueBody = [
   '## Plane Task',
   '- Plane URL: ' + (planeUrl || 'Not provided'),
   '- Plane ID: ' + (planeIssueId || 'Not provided'),
+  '- Plane Project ID: ' + (planeProjectId || 'Not provided'),
   '- Plane Key: ' + (planeIssueKey || 'Not provided'),
   '',
   '## Goal',
@@ -629,9 +634,14 @@ const issueBody = [
   '',
   '## Automation Metadata',
   'plane_issue_id: ' + planeIssueId,
-  'plane_url: ' + planeUrl
+  'plane_project_id: ' + planeProjectId,
+  'plane_url: ' + planeUrl,
+  'plane_workspace_slug: ' + (config.plane_workspace_slug || ''),
+  'github_issue_number: pending',
+  'runner: ' + runner,
+  'source_workflow: Plane Ready to GitHub Issue'
 ].join('\\\\n');
-return { json: { ...$json, config, plane_issue_id: planeIssueId, plane_issue_key: planeIssueKey, plane_title: title, plane_description: description, plane_state: stateValue, plane_state_id: stateId, plane_url: planeUrl, existing_github_issue_url: existing, ready, has_existing_github_issue: Boolean(existing), github_issue_title: '[Plane] ' + title, github_issue_body: issueBody } };
+return { json: { ...$json, config, plane_issue_id: planeIssueId, plane_project_id: planeProjectId, runner, plane_issue_key: planeIssueKey, plane_title: title, plane_description: description, plane_state: stateValue, plane_state_id: stateId, plane_url: planeUrl, existing_github_issue_url: existing, ready, has_existing_github_issue: Boolean(existing), github_issue_title: '[Plane] ' + title, github_issue_body: issueBody } };
 \`
     }
   }
@@ -813,6 +823,7 @@ const upsertIssueLock = node({
         matchingColumns: ['plane_issue_id'],
         value: {
           plane_issue_id: expr('{{ $("Normalize Plane Payload").item.json.plane_issue_id }}'),
+          plane_project_id: expr('{{ $("Normalize Plane Payload").item.json.plane_project_id }}'),
           plane_issue_key: expr('{{ $("Normalize Plane Payload").item.json.plane_issue_key }}'),
           status: expr('{{ $("Resolve Canonical GitHub Issue").item.json.duplicate_created ? "deduped" : "active" }}'),
           github_issue_url: expr('{{ $("Resolve Canonical GitHub Issue").item.json.canonical_github_issue_url }}'),
@@ -822,6 +833,7 @@ const upsertIssueLock = node({
         },
         schema: [
           { id: 'plane_issue_id', displayName: 'plane_issue_id', required: true, defaultMatch: true, display: true, type: 'string', canBeUsedToMatch: true },
+          { id: 'plane_project_id', displayName: 'plane_project_id', display: true, type: 'string' },
           { id: 'plane_issue_key', displayName: 'plane_issue_key', display: true, type: 'string' },
           { id: 'status', displayName: 'status', display: true, type: 'string' },
           { id: 'github_issue_url', displayName: 'github_issue_url', display: true, type: 'string' },
@@ -878,7 +890,7 @@ const commentPlane = node({
     credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
     parameters: {
       method: 'POST',
-      url: expr('{{ $("Normalize Plane Payload").item.json.config.plane_api_base_url + "/api/v1/workspaces/" + $("Normalize Plane Payload").item.json.config.plane_workspace_slug + "/projects/" + $("Normalize Plane Payload").item.json.config.plane_project_id + "/work-items/" + $("Normalize Plane Payload").item.json.plane_issue_id + "/comments/" }}'),
+      url: expr('{{ $("Normalize Plane Payload").item.json.config.plane_api_base_url + "/api/v1/workspaces/" + $("Normalize Plane Payload").item.json.config.plane_workspace_slug + "/projects/" + $("Normalize Plane Payload").item.json.plane_project_id + "/work-items/" + $("Normalize Plane Payload").item.json.plane_issue_id + "/comments/" }}'),
       authentication: 'genericCredentialType',
       genericAuthType: 'httpHeaderAuth',
       sendHeaders: true,
@@ -968,18 +980,18 @@ const metadataText = [pr.body || '', pr.title || '', JSON.stringify(body)].join(
 const issueUrl = metadataText.match(/https:\\\\/\\\\/github\\\\.com\\\\/[^\\\\s)]+\\\\/issues\\\\/\\\\d+/)?.[0] || '';
 const planeUrl = metadataText.match(/https?:\\\\/\\\\/[^\\\\s)"]*plane[^\\\\s)"]*/i)?.[0] || '';
 const planeIssueId = metadataText.match(/plane_issue_id:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] || '';
+const planeProjectId = metadataText.match(/plane_project_id:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] || config.plane_project_id || '';
 const reviewable = ['opened', 'synchronize', 'reopened', 'ready_for_review'].includes(action);
 const message = [
-  'Build ready for review',
+  'Approval needed',
   'Plane: ' + (planeUrl || planeIssueId || 'Not linked'),
   'GitHub Issue: ' + (issueUrl || 'Not linked'),
-  'PR / Merge Link: ' + (pr.html_url || 'Not provided'),
+  'PR: ' + (pr.html_url || 'Not provided'),
   'Checks: pending or see GitHub PR',
   'Summary: ' + (pr.title || 'PR opened'),
-  'Risks: See PR body',
-  'Next step: review and merge in GitHub.'
+  'Decision: Approve, Request Changes, or Block from Slack.'
 ].join('\\\\n');
-return { json: { ...$json, config, action, reviewable, pr_title: pr.title, pr_url: pr.html_url, pr_merge_link: pr.html_url, issue_url: issueUrl, plane_url: planeUrl, plane_issue_id: planeIssueId, plane_state_id: config.plane_review_state_id, slack_message: message } };
+return { json: { ...$json, config, action, reviewable, pr_number: pr.number || '', pr_title: pr.title, pr_url: pr.html_url, pr_merge_link: pr.html_url, issue_url: issueUrl, plane_url: planeUrl, plane_issue_id: planeIssueId, plane_project_id: planeProjectId, plane_state_id: config.plane_review_state_id, slack_message: message } };
 \`
     }
   }
@@ -1015,7 +1027,7 @@ const updatePlaneReview = node({
     credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
     parameters: {
       method: 'PATCH',
-      url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.config.plane_project_id + "/work-items/" + $json.plane_issue_id + "/" }}'),
+      url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.plane_project_id + "/work-items/" + $json.plane_issue_id + "/" }}'),
       authentication: 'genericCredentialType',
       genericAuthType: 'httpHeaderAuth',
       sendHeaders: true,
@@ -1024,6 +1036,47 @@ const updatePlaneReview = node({
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ { state: $json.plane_state_id } }}')
+    }
+  }
+});
+
+const listPlaneReviewStates = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'List Plane Review States',
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    parameters: {
+      method: 'GET',
+      url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.plane_project_id + "/states/" }}'),
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] }
+    }
+  }
+});
+
+const resolvePlaneReviewState = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Resolve Plane Review State',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const original = $('Extract PR Review Context').item.json;
+const states = Array.isArray($json.results) ? $json.results : (Array.isArray($json) ? $json : []);
+const review = states.find((state) => String(state.name || '').toLowerCase() === String(original.config.plane_review_state_name || 'Review').toLowerCase());
+return {
+  json: {
+    ...original,
+    plane_state_id: review?.id || original.config.plane_review_state_id,
+    plane_state_name: review?.name || original.config.plane_review_state_name || 'Review',
+  },
+};
+\`
     }
   }
 });
@@ -1038,7 +1091,7 @@ const commentPlaneReview = node({
     credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
     parameters: {
       method: 'POST',
-      url: expr('{{ $("Extract PR Review Context").item.json.config.plane_api_base_url + "/api/v1/workspaces/" + $("Extract PR Review Context").item.json.config.plane_workspace_slug + "/projects/" + $("Extract PR Review Context").item.json.config.plane_project_id + "/work-items/" + $("Extract PR Review Context").item.json.plane_issue_id + "/comments/" }}'),
+      url: expr('{{ $("Extract PR Review Context").item.json.config.plane_api_base_url + "/api/v1/workspaces/" + $("Extract PR Review Context").item.json.config.plane_workspace_slug + "/projects/" + $("Extract PR Review Context").item.json.plane_project_id + "/work-items/" + $("Extract PR Review Context").item.json.plane_issue_id + "/comments/" }}'),
       authentication: 'genericCredentialType',
       genericAuthType: 'httpHeaderAuth',
       sendHeaders: true,
@@ -1070,19 +1123,22 @@ const restoreReviewMessage = node({
 });
 
 const slackReview = node({
-  type: 'n8n-nodes-base.slack',
-  version: 2.4,
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
   config: {
-    name: 'Send Slack Review Message',
+    name: 'Send Slack Approval Message',
+    credentials: { httpHeaderAuth: newCredential('${slackHttpCredential}') },
     parameters: {
-      resource: 'message',
-      operation: 'post',
-      authentication: 'accessToken',
-      select: 'channel',
-      channelId: { __rl: true, mode: 'name', value: '#workflow-builder' },
-      messageType: 'text',
-      text: expr('{{ $json.slack_message }}'),
-      otherOptions: { includeLinkToWorkflow: false, mrkdwn: true }
+      method: 'POST',
+      url: 'https://slack.com/api/chat.postMessage',
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] },
+      sendBody: true,
+      contentType: 'json',
+      specifyBody: 'json',
+      jsonBody: expr('{{ { channel: $("Extract PR Review Context").item.json.config.slack_review_channel, text: $("Extract PR Review Context").item.json.slack_message, blocks: [ { type: "section", text: { type: "mrkdwn", text: "*" + $("Extract PR Review Context").item.json.pr_title + "*\\\\n" + $("Extract PR Review Context").item.json.slack_message } }, { type: "actions", elements: [ { type: "button", text: { type: "plain_text", text: "Approve" }, style: "primary", action_id: "approve", value: JSON.stringify({ decision: "approve", pr_number: $("Extract PR Review Context").item.json.pr_number, plane_issue_id: $("Extract PR Review Context").item.json.plane_issue_id, plane_project_id: $("Extract PR Review Context").item.json.plane_project_id }) }, { type: "button", text: { type: "plain_text", text: "Request Changes" }, action_id: "request_changes", value: JSON.stringify({ decision: "request_changes", pr_number: $("Extract PR Review Context").item.json.pr_number, plane_issue_id: $("Extract PR Review Context").item.json.plane_issue_id, plane_project_id: $("Extract PR Review Context").item.json.plane_project_id }) }, { type: "button", text: { type: "plain_text", text: "Block" }, style: "danger", action_id: "block", value: JSON.stringify({ decision: "block", pr_number: $("Extract PR Review Context").item.json.pr_number, plane_issue_id: $("Extract PR Review Context").item.json.plane_issue_id, plane_project_id: $("Extract PR Review Context").item.json.plane_project_id }) } ] } ] } }}')
     }
   }
 });
@@ -1096,7 +1152,7 @@ export default workflow('github-pr-slack-review', 'GitHub PR to Slack Review')
   .to(extract)
   .to(shouldNotify
     .onTrue(hasPlane
-      .onTrue(updatePlaneReview.to(commentPlaneReview).to(restoreReviewMessage).to(slackReview).to(respondNotified))
+      .onTrue(listPlaneReviewStates.to(resolvePlaneReviewState).to(updatePlaneReview).to(commentPlaneReview).to(restoreReviewMessage).to(slackReview).to(respondNotified))
       .onFalse(slackReview.to(respondNotified)))
     .onFalse(respondIgnored));
 `;
@@ -2162,9 +2218,10 @@ const started = isDeployWorkflow && run.status !== 'completed';
 const success = run.conclusion === 'success';
 const text = JSON.stringify(body);
 const planeIssueId = text.match(/plane_issue_id:\\\\s*([A-Za-z0-9_-]+)/)?.[1] || '';
+const planeProjectId = text.match(/plane_project_id:\\\\s*([A-Za-z0-9_-]+)/)?.[1] || config.plane_project_id || '';
 const planeUrl = text.match(/https?:\\\\/\\\\/[^\\\\s)"]*plane[^\\\\s)"]*/i)?.[0] || '';
 const prNumber = run.pull_requests?.[0]?.number || run.display_title?.match(/\\\\(#(\\\\d+)\\\\)/)?.[1] || run.head_commit?.message?.match(/\\\\(#(\\\\d+)\\\\)/)?.[1] || '';
-const stateId = started ? config.plane_deploying_state_id : (success ? config.plane_done_state_id : config.plane_failed_state_id);
+const stateName = started ? config.plane_deploying_state_name : (success ? config.plane_done_state_name : config.plane_failed_state_name);
 const message = [
   'Deployment ' + (started ? 'started' : (success ? 'succeeded' : 'failed')),
   'Repo: ' + (body.repository?.full_name || config.github_owner + '/' + config.github_repo),
@@ -2173,7 +2230,7 @@ const message = [
   'Plane: ' + (planeUrl || planeIssueId || 'not resolved'),
   'Plane status update: ' + (planeIssueId ? (started ? 'Deploying queued' : 'queued') : 'skipped, Plane task not resolved')
 ].join('\\\\n');
-return { json: { ...$json, config, is_deploy_workflow: isDeployWorkflow, completed, started, success, deployment_status: started ? 'started' : (success ? 'succeeded' : 'failed'), run_url: run.html_url, head_sha: run.head_sha, repository: body.repository?.full_name, pr_number: String(prNumber || ''), plane_issue_id: planeIssueId, plane_url: planeUrl, plane_state_id: stateId, slack_message: message } };
+return { json: { ...$json, config, is_deploy_workflow: isDeployWorkflow, completed, started, success, deployment_status: started ? 'started' : (success ? 'succeeded' : 'failed'), run_url: run.html_url, head_sha: run.head_sha, repository: body.repository?.full_name, pr_number: String(prNumber || ''), plane_issue_id: planeIssueId, plane_project_id: planeProjectId, plane_url: planeUrl, plane_state_name: stateName, slack_message: message } };
 \`
     }
   }
@@ -2262,6 +2319,12 @@ const planeIssueId =
   text.match(/plane_issue_id:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] ||
   text.match(/Plane ID:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] ||
   '';
+const planeProjectId =
+  base.plane_project_id ||
+  text.match(/plane_project_id:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] ||
+  text.match(/Plane Project ID:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] ||
+  base.config.plane_project_id ||
+  '';
 const planeUrl = base.plane_url || text.match(/https?:\\\\/\\\\/[^\\\\s)"]*plane[^\\\\s)"]*/i)?.[0] || '';
 const prUrl = pr.html_url || (base.pr_number ? 'https://github.com/' + base.config.github_owner + '/' + base.config.github_repo + '/pull/' + base.pr_number : '');
 const githubIssueNumber =
@@ -2281,7 +2344,50 @@ const message = [
   'Plane status update: ' + (planeIssueId ? 'queued' : 'skipped, Plane task not resolved'),
   'GitHub issue close: ' + (base.success && planeIssueId && githubIssueNumber ? '#' + githubIssueNumber + ' queued' : 'skipped')
 ].join('\\\\n');
-return { json: { ...base, plane_issue_id: planeIssueId, plane_url: planeUrl, pr_url: prUrl, github_issue_number: String(githubIssueNumber || ''), github_issue_url: githubIssueNumber ? 'https://github.com/' + base.config.github_owner + '/' + base.config.github_repo + '/issues/' + githubIssueNumber : '', slack_message: message } };
+return { json: { ...base, plane_issue_id: planeIssueId, plane_project_id: planeProjectId, plane_url: planeUrl, pr_url: prUrl, github_issue_number: String(githubIssueNumber || ''), github_issue_url: githubIssueNumber ? 'https://github.com/' + base.config.github_owner + '/' + base.config.github_repo + '/issues/' + githubIssueNumber : '', slack_message: message } };
+\`
+    }
+  }
+});
+
+const listPlaneDeploymentStates = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'List Plane Deployment States',
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    parameters: {
+      method: 'GET',
+      url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.plane_project_id + "/states/" }}'),
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] }
+    }
+  }
+});
+
+const resolvePlaneDeploymentState = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Resolve Plane Deployment State',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const original = $('Resolve Plane Context').item.json;
+const states = Array.isArray($json.results) ? $json.results : (Array.isArray($json) ? $json : []);
+const wantedName = original.plane_state_name || (original.success ? original.config.plane_done_state_name : original.config.plane_failed_state_name);
+const state = states.find((item) => String(item.name || '').toLowerCase() === String(wantedName || '').toLowerCase());
+const fallbackStateId = original.started ? original.config.plane_deploying_state_id : (original.success ? original.config.plane_done_state_id : original.config.plane_failed_state_id);
+return {
+  json: {
+    ...original,
+    plane_state_id: state?.id || fallbackStateId,
+    plane_state_name: state?.name || wantedName,
+  },
+};
 \`
     }
   }
@@ -2296,7 +2402,7 @@ const updatePlane = node({
     credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
     parameters: {
       method: 'PATCH',
-      url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.config.plane_project_id + "/work-items/" + $json.plane_issue_id + "/" }}'),
+      url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.plane_project_id + "/work-items/" + $json.plane_issue_id + "/" }}'),
       authentication: 'genericCredentialType',
       genericAuthType: 'httpHeaderAuth',
       sendHeaders: true,
@@ -2319,7 +2425,7 @@ const commentPlaneDeployment = node({
     credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
     parameters: {
       method: 'POST',
-      url: expr('{{ $("Resolve Plane Context").item.json.config.plane_api_base_url + "/api/v1/workspaces/" + $("Resolve Plane Context").item.json.config.plane_workspace_slug + "/projects/" + $("Resolve Plane Context").item.json.config.plane_project_id + "/work-items/" + $("Resolve Plane Context").item.json.plane_issue_id + "/comments/" }}'),
+      url: expr('{{ $("Resolve Plane Context").item.json.config.plane_api_base_url + "/api/v1/workspaces/" + $("Resolve Plane Context").item.json.config.plane_workspace_slug + "/projects/" + $("Resolve Plane Context").item.json.plane_project_id + "/work-items/" + $("Resolve Plane Context").item.json.plane_issue_id + "/comments/" }}'),
       authentication: 'genericCredentialType',
       genericAuthType: 'httpHeaderAuth',
       sendHeaders: true,
@@ -2440,15 +2546,500 @@ export default workflow('deployment-result-plane-slack', 'Deployment Result to P
   .to(isCompletedDeploy
     .onTrue(hasPrNumber
       .onTrue(fetchMergedPr.to(resolvePlaneContext).to(hasPlane
-        .onTrue(updatePlane.to(commentPlaneDeployment).to(shouldCloseGitHubIssue
+        .onTrue(listPlaneDeploymentStates.to(resolvePlaneDeploymentState).to(updatePlane).to(commentPlaneDeployment).to(shouldCloseGitHubIssue
           .onTrue(commentGitHubIssueCompleted.to(closeGitHubIssueCompleted).to(restoreDeployMessage).to(slackDeploy).to(respondSynced))
           .onFalse(restoreDeployMessage.to(slackDeploy).to(respondSynced))))
         .onFalse(slackDeploy.to(respondSynced))))
       .onFalse(fetchPrsForCommit.to(resolvePlaneContext).to(hasPlane
-        .onTrue(updatePlane.to(commentPlaneDeployment).to(shouldCloseGitHubIssue
+        .onTrue(listPlaneDeploymentStates.to(resolvePlaneDeploymentState).to(updatePlane).to(commentPlaneDeployment).to(shouldCloseGitHubIssue
           .onTrue(commentGitHubIssueCompleted.to(closeGitHubIssueCompleted).to(restoreDeployMessage).to(slackDeploy).to(respondSynced))
           .onFalse(restoreDeployMessage.to(slackDeploy).to(respondSynced))))
         .onFalse(slackDeploy.to(respondSynced)))))
+    .onFalse(respondIgnored));
+`;
+
+const issueDispatchWorkflow = `
+import { workflow, node, trigger, newCredential, ifElse, expr } from '@n8n/workflow-sdk';
+
+const githubIssueWebhook = trigger({
+  type: 'n8n-nodes-base.webhook',
+  version: 2.1,
+  config: { name: 'GitHub Issue Dispatch Webhook', parameters: { httpMethod: 'POST', path: 'github-issue-agent-dispatch', authentication: 'none', responseMode: 'responseNode', options: { rawBody: true } } }
+});
+
+const config = node({
+  type: 'n8n-nodes-base.set',
+  version: 3.4,
+  config: {
+    name: 'CONFIG',
+    parameters: {
+      mode: 'manual',
+      includeOtherFields: true,
+      assignments: {
+        assignments: [
+          { id: 'config-object', name: 'config', type: 'object', value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", plane_api_base_url: "https://api.plane.so", plane_workspace_slug: "tcia", plane_building_state_name: "Building", plane_building_state_id: "57e8338f-7181-44f6-9f5e-806a425ec6b2", openclaw_dispatch_url: "https://openclaw.local/webhook/agent-dispatch", public_n8n_base_url: "https://n8n.tradecredit.agency" } }}') }
+        ]
+      }
+    }
+  }
+});
+
+const extract = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Extract Dispatch Context',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const config = $json.config || {};
+const body = $json.body || $json;
+const action = body.action || '';
+const issue = body.issue || {};
+const labels = (issue.labels || []).map((label) => String(label.name || label).toLowerCase());
+const text = issue.body || '';
+const planeIssueId = text.match(/plane_issue_id:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] || '';
+const planeProjectId = text.match(/plane_project_id:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] || '';
+const planeUrl = text.match(/plane_url:\\\\s*(\\\\S+)/i)?.[1] || '';
+const runner = (text.match(/runner:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] || 'auto').toLowerCase();
+const issueNumber = issue.number || body.issue_number || '';
+const eligibleAction = ['opened', 'edited', 'labeled', 'reopened'].includes(action);
+const hasQueueLabels = ['plane', 'codex-ready', 'automation'].every((label) => labels.includes(label));
+const alreadyClaimed = ['codex-in-progress', 'hermes-in-progress', 'codex-pr-open', 'done', 'blocked'].some((label) => labels.includes(label));
+const isPullRequest = Boolean(issue.pull_request);
+const eligible = eligibleAction && hasQueueLabels && !alreadyClaimed && !isPullRequest && Boolean(issueNumber && planeIssueId && planeProjectId);
+const resolvedRunner = runner === 'hermes' ? 'hermes' : 'codex';
+return {
+  json: {
+    ...$json,
+    config,
+    action,
+    eligible,
+    issue_number: String(issueNumber || ''),
+    issue_url: issue.html_url || '',
+    issue_title: issue.title || '',
+    plane_issue_id: planeIssueId,
+    plane_project_id: planeProjectId,
+    plane_url: planeUrl,
+    runner: resolvedRunner,
+    claim_label: resolvedRunner === 'hermes' ? 'hermes-in-progress' : 'codex-in-progress',
+    dispatch_payload: {
+      source: 'n8n',
+      event: 'github_issue_ready',
+      repo: config.github_owner + '/' + config.github_repo,
+      github_issue_number: Number(issueNumber || 0),
+      github_issue_url: issue.html_url || '',
+      plane_issue_id: planeIssueId,
+      plane_project_id: planeProjectId,
+      plane_url: planeUrl,
+      runner: resolvedRunner,
+      callback_url: (config.public_n8n_base_url || '').replace(/\\\\/$/, '') + '/webhook/agent-result'
+    }
+  }
+};
+\`
+    }
+  }
+});
+
+const shouldDispatch = ifElse({
+  version: 2.3,
+  config: {
+    name: 'Eligible Issue?',
+    parameters: {
+      conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ String($json.eligible) }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'true' }], combinator: 'and' }
+    }
+  }
+});
+
+const claimIssue = node({
+  type: 'n8n-nodes-base.github',
+  version: 1.1,
+  config: {
+    name: 'Claim GitHub Issue',
+    credentials: { githubApi: newCredential('${githubCredential}') },
+    parameters: {
+      resource: 'issue',
+      operation: 'edit',
+      authentication: 'accessToken',
+      owner: { __rl: true, mode: 'name', value: 'choicedrum-crypto' },
+      repository: { __rl: true, mode: 'name', value: 'agentic-buildout-starter' },
+      issueNumber: expr('{{ Number($json.issue_number) }}'),
+      editFields: { labels: [{ label: 'plane' }, { label: 'codex-ready' }, { label: 'automation' }, { label: expr('{{ $("Extract Dispatch Context").item.json.claim_label }}') }] }
+    }
+  }
+});
+
+const dispatchOpenClaw = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Dispatch OpenClaw Agent',
+    parameters: {
+      method: 'POST',
+      url: expr('{{ $("Extract Dispatch Context").item.json.config.openclaw_dispatch_url }}'),
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] },
+      sendBody: true,
+      contentType: 'json',
+      specifyBody: 'json',
+      jsonBody: expr('{{ $("Extract Dispatch Context").item.json.dispatch_payload }}')
+    }
+  }
+});
+
+const listPlaneBuildingStates = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'List Plane Building States',
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    parameters: {
+      method: 'GET',
+      url: expr('{{ $("Extract Dispatch Context").item.json.config.plane_api_base_url + "/api/v1/workspaces/" + $("Extract Dispatch Context").item.json.config.plane_workspace_slug + "/projects/" + $("Extract Dispatch Context").item.json.plane_project_id + "/states/" }}'),
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] }
+    }
+  }
+});
+
+const resolveBuildingState = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Resolve Building State',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const original = $('Extract Dispatch Context').item.json;
+const states = Array.isArray($json.results) ? $json.results : (Array.isArray($json) ? $json : []);
+const state = states.find((item) => String(item.name || '').toLowerCase() === String(original.config.plane_building_state_name || 'Building').toLowerCase());
+return { json: { ...original, plane_state_id: state?.id || original.config.plane_building_state_id } };
+\`
+    }
+  }
+});
+
+const movePlaneBuilding = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Move Plane to Building',
+    alwaysOutputData: true,
+    continueOnFail: true,
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    parameters: {
+      method: 'PATCH',
+      url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.plane_project_id + "/work-items/" + $json.plane_issue_id + "/" }}'),
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] },
+      sendBody: true,
+      contentType: 'json',
+      specifyBody: 'json',
+      jsonBody: expr('{{ { state: $json.plane_state_id } }}')
+    }
+  }
+});
+
+const respondDispatched = node({ type: 'n8n-nodes-base.respondToWebhook', version: 1.5, config: { name: 'Respond Dispatched', parameters: { respondWith: 'json', responseBody: expr('{{ { ok: true, action: "agent_dispatched", runner: $("Extract Dispatch Context").item.json.runner, issue_number: $("Extract Dispatch Context").item.json.issue_number, plane_issue_id: $("Extract Dispatch Context").item.json.plane_issue_id } }}'), options: { responseCode: 200 } } } });
+const respondIgnored = node({ type: 'n8n-nodes-base.respondToWebhook', version: 1.5, config: { name: 'Respond Ignored', parameters: { respondWith: 'json', responseBody: expr('{{ { ok: true, action: "ignored_issue_not_eligible", github_action: $json.action, issue_number: $json.issue_number || "" } }}'), options: { responseCode: 200 } } } });
+
+export default workflow('github-issue-agent-dispatch', 'GitHub Issue to Agent Dispatch')
+  .add(githubIssueWebhook)
+  .to(config)
+  .to(extract)
+  .to(shouldDispatch
+    .onTrue(claimIssue.to(dispatchOpenClaw).to(listPlaneBuildingStates).to(resolveBuildingState).to(movePlaneBuilding).to(respondDispatched))
+    .onFalse(respondIgnored));
+`;
+
+const agentResultWorkflow = `
+import { workflow, node, trigger, newCredential, ifElse, expr } from '@n8n/workflow-sdk';
+
+const agentResultWebhook = trigger({
+  type: 'n8n-nodes-base.webhook',
+  version: 2.1,
+  config: { name: 'Agent Result Webhook', parameters: { httpMethod: 'POST', path: 'agent-result', authentication: 'none', responseMode: 'responseNode', options: { rawBody: true } } }
+});
+
+const config = node({
+  type: 'n8n-nodes-base.set',
+  version: 3.4,
+  config: {
+    name: 'CONFIG',
+    parameters: {
+      mode: 'manual',
+      includeOtherFields: true,
+      assignments: { assignments: [{ id: 'config-object', name: 'config', type: 'object', value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", plane_api_base_url: "https://api.plane.so", plane_workspace_slug: "tcia", plane_review_state_name: "Review", plane_review_state_id: "0948b422-5c0c-4c37-b34d-0a358e156a6f", plane_blocked_state_name: "Blocked", plane_blocked_state_id: "8ea8d880-15b2-4201-8fbc-358ba54e5b54" } }}') }] }
+    }
+  }
+});
+
+const extract = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Extract Agent Result',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const config = $json.config || {};
+const body = $json.body || $json;
+const status = String(body.status || body.event || '').toLowerCase();
+const prNumber = body.pr_number || body.pull_request_number || '';
+const issueNumber = body.github_issue_number || body.issue_number || '';
+const planeIssueId = body.plane_issue_id || '';
+const planeProjectId = body.plane_project_id || '';
+const success = ['pr_opened', 'revision_pushed', 'completed'].includes(status) && Boolean(prNumber);
+const blocked = ['blocked', 'failed', 'runner_failed'].includes(status);
+const targetStateName = success ? config.plane_review_state_name : config.plane_blocked_state_name;
+return { json: { ...$json, config, status, success, blocked, pr_number: String(prNumber || ''), issue_number: String(issueNumber || ''), plane_issue_id: planeIssueId, plane_project_id: planeProjectId, pr_url: body.pr_url || '', target_state_name: targetStateName } };
+\`
+    }
+  }
+});
+
+const shouldSync = ifElse({
+  version: 2.3,
+  config: {
+    name: 'Result Syncable?',
+    parameters: {
+      conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ String(Boolean($json.plane_issue_id && $json.plane_project_id && ($json.success || $json.blocked))) }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'true' }], combinator: 'and' }
+    }
+  }
+});
+
+const listPlaneStates = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'List Plane Result States',
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    parameters: {
+      method: 'GET',
+      url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.plane_project_id + "/states/" }}'),
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] }
+    }
+  }
+});
+
+const resolveState = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Resolve Agent Result State',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const original = $('Extract Agent Result').item.json;
+const states = Array.isArray($json.results) ? $json.results : (Array.isArray($json) ? $json : []);
+const state = states.find((item) => String(item.name || '').toLowerCase() === String(original.target_state_name || '').toLowerCase());
+return { json: { ...original, plane_state_id: state?.id || (original.success ? original.config.plane_review_state_id : original.config.plane_blocked_state_id) } };
+\`
+    }
+  }
+});
+
+const updatePlane = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Update Plane from Agent Result',
+    alwaysOutputData: true,
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    parameters: {
+      method: 'PATCH',
+      url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.plane_project_id + "/work-items/" + $json.plane_issue_id + "/" }}'),
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] },
+      sendBody: true,
+      contentType: 'json',
+      specifyBody: 'json',
+      jsonBody: expr('{{ { state: $json.plane_state_id } }}')
+    }
+  }
+});
+
+const updateIssueLabels = node({
+  type: 'n8n-nodes-base.github',
+  version: 1.1,
+  config: {
+    name: 'Update GitHub Issue Labels',
+    continueOnFail: true,
+    credentials: { githubApi: newCredential('${githubCredential}') },
+    parameters: {
+      resource: 'issue',
+      operation: 'edit',
+      authentication: 'accessToken',
+      owner: { __rl: true, mode: 'name', value: 'choicedrum-crypto' },
+      repository: { __rl: true, mode: 'name', value: 'agentic-buildout-starter' },
+      issueNumber: expr('{{ Number($("Extract Agent Result").item.json.issue_number || 0) }}'),
+      editFields: { labels: [{ label: 'plane' }, { label: 'automation' }, { label: expr('{{ $("Extract Agent Result").item.json.success ? "codex-pr-open" : "blocked" }}') }] }
+    }
+  }
+});
+
+const respondSynced = node({ type: 'n8n-nodes-base.respondToWebhook', version: 1.5, config: { name: 'Respond Agent Result Synced', parameters: { respondWith: 'json', responseBody: expr('{{ { ok: true, action: "agent_result_synced", status: $("Extract Agent Result").item.json.status, pr_number: $("Extract Agent Result").item.json.pr_number } }}'), options: { responseCode: 200 } } } });
+const respondIgnored = node({ type: 'n8n-nodes-base.respondToWebhook', version: 1.5, config: { name: 'Respond Agent Result Ignored', parameters: { respondWith: 'json', responseBody: expr('{{ { ok: true, action: "ignored_agent_result", status: $json.status || "" } }}'), options: { responseCode: 200 } } } });
+
+export default workflow('agent-result-github-plane', 'Agent Result to GitHub and Plane')
+  .add(agentResultWebhook)
+  .to(config)
+  .to(extract)
+  .to(shouldSync
+    .onTrue(listPlaneStates.to(resolveState).to(updatePlane).to(updateIssueLabels).to(respondSynced))
+    .onFalse(respondIgnored));
+`;
+
+const slackApprovalWorkflow = `
+import { workflow, node, newCredential, trigger, ifElse, expr } from '@n8n/workflow-sdk';
+
+const slackWebhook = trigger({
+  type: 'n8n-nodes-base.webhook',
+  version: 2.1,
+  config: { name: 'Slack Approval Webhook', parameters: { httpMethod: 'POST', path: 'slack-agent-approval', authentication: 'none', responseMode: 'responseNode', options: { rawBody: true } } }
+});
+
+const config = node({
+  type: 'n8n-nodes-base.set',
+  version: 3.4,
+  config: {
+    name: 'CONFIG',
+    parameters: {
+      mode: 'manual',
+      includeOtherFields: true,
+      assignments: { assignments: [{ id: 'config-object', name: 'config', type: 'object', value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", merge_method: "squash", plane_api_base_url: "https://api.plane.so", plane_workspace_slug: "tcia", plane_approved_state_name: "Approved", plane_approved_state_id: "0948b422-5c0c-4c37-b34d-0a358e156a6f", plane_changes_state_name: "Changes Requested", plane_blocked_state_name: "Blocked", plane_blocked_state_id: "8ea8d880-15b2-4201-8fbc-358ba54e5b54" } }}') }] }
+    }
+  }
+});
+
+const extract = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Extract Slack Decision',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const config = $json.config || {};
+const body = $json.body || $json;
+let payload = body.payload || body;
+if (typeof payload === 'string') {
+  try { payload = JSON.parse(payload); } catch { payload = {}; }
+}
+const action = payload.actions?.[0] || {};
+let value = action.value || body.value || '{}';
+try { value = typeof value === 'string' ? JSON.parse(value) : value; } catch { value = {}; }
+const decision = value.decision || action.action_id || body.decision || '';
+const approved = decision === 'approve';
+const requestChanges = decision === 'request_changes';
+const blocked = decision === 'block';
+return {
+  json: {
+    ...$json,
+    config,
+    decision,
+    approved,
+    request_changes: requestChanges,
+    blocked,
+    pr_number: String(value.pr_number || body.pr_number || ''),
+    plane_issue_id: value.plane_issue_id || body.plane_issue_id || '',
+    plane_project_id: value.plane_project_id || body.plane_project_id || '',
+    requested_by: payload.user?.username || payload.user?.name || payload.user?.id || '',
+    revision_request: value.revision_request || body.revision_request || 'Changes requested from Slack approval action.',
+    target_state_name: approved ? config.plane_approved_state_name : (blocked ? config.plane_blocked_state_name : config.plane_changes_state_name)
+  }
+};
+\`
+    }
+  }
+});
+
+const validDecision = ifElse({
+  version: 2.3,
+  config: {
+    name: 'Valid Slack Decision?',
+    parameters: {
+      conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ String(Boolean($json.pr_number && ($json.approved || $json.request_changes || $json.blocked))) }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'true' }], combinator: 'and' }
+    }
+  }
+});
+
+const approvedDecision = ifElse({
+  version: 2.3,
+  config: {
+    name: 'Approved?',
+    parameters: {
+      conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ String($json.approved) }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'true' }], combinator: 'and' }
+    }
+  }
+});
+
+const mergePr = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Merge Approved PR',
+    credentials: { httpHeaderAuth: newCredential('${githubHttpCredential}') },
+    parameters: {
+      method: 'PUT',
+      url: expr('{{ "https://api.github.com/repos/" + $json.config.github_owner + "/" + $json.config.github_repo + "/pulls/" + $json.pr_number + "/merge" }}'),
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Accept', value: 'application/vnd.github+json' }, { name: 'Content-Type', value: 'application/json' }] },
+      sendBody: true,
+      contentType: 'json',
+      specifyBody: 'json',
+      jsonBody: expr('{{ { merge_method: $json.config.merge_method || "squash", commit_title: "Merge approved agentic PR #" + $json.pr_number } }}')
+    }
+  }
+});
+
+const commentPrDecision = node({
+  type: 'n8n-nodes-base.github',
+  version: 1.1,
+  config: {
+    name: 'Comment PR Decision',
+    credentials: { githubApi: newCredential('${githubCredential}') },
+    parameters: {
+      resource: 'issue',
+      operation: 'createComment',
+      authentication: 'accessToken',
+      owner: { __rl: true, mode: 'name', value: 'choicedrum-crypto' },
+      repository: { __rl: true, mode: 'name', value: 'agentic-buildout-starter' },
+      issueNumber: expr('{{ Number($json.pr_number) }}'),
+      body: expr('{{ $json.request_changes ? "/codex revise\\\\n" + $json.revision_request : "Blocked from Slack approval action by " + ($json.requested_by || "unknown") }}')
+    }
+  }
+});
+
+const respondApproved = node({ type: 'n8n-nodes-base.respondToWebhook', version: 1.5, config: { name: 'Respond Approved', parameters: { respondWith: 'json', responseBody: expr('{{ { ok: true, action: "approved_and_merge_requested", pr_number: $("Extract Slack Decision").item.json.pr_number } }}'), options: { responseCode: 200 } } } });
+const respondQueued = node({ type: 'n8n-nodes-base.respondToWebhook', version: 1.5, config: { name: 'Respond Revision Or Block', parameters: { respondWith: 'json', responseBody: expr('{{ { ok: true, action: $("Extract Slack Decision").item.json.request_changes ? "revision_requested" : "blocked", pr_number: $("Extract Slack Decision").item.json.pr_number } }}'), options: { responseCode: 200 } } } });
+const respondIgnored = node({ type: 'n8n-nodes-base.respondToWebhook', version: 1.5, config: { name: 'Respond Invalid Decision', parameters: { respondWith: 'json', responseBody: expr('{{ { ok: false, action: "invalid_slack_decision" } }}'), options: { responseCode: 400 } } } });
+
+export default workflow('slack-approval-to-merge', 'Slack Approval to Merge')
+  .add(slackWebhook)
+  .to(config)
+  .to(extract)
+  .to(validDecision
+    .onTrue(approvedDecision
+      .onTrue(mergePr.to(respondApproved))
+      .onFalse(commentPrDecision.to(respondQueued)))
     .onFalse(respondIgnored));
 `;
 
@@ -2477,6 +3068,21 @@ let workflows = [
     workflowId: 'Vjt6XjFa84cHbs7B',
     code: prFeedbackWorkflow,
     description: 'Receives /codex revise PR comments, moves Plane back to In Progress, and notifies Slack that Codex should revise the PR branch.',
+  },
+  {
+    name: 'GitHub Issue to Agent Dispatch',
+    code: issueDispatchWorkflow,
+    description: 'Claims Codex-ready GitHub issues from Plane and dispatches them through OpenClaw to Codex or Hermes.',
+  },
+  {
+    name: 'Agent Result to GitHub and Plane',
+    code: agentResultWorkflow,
+    description: 'Receives OpenClaw agent results, updates GitHub labels, and moves linked Plane work to Review or Blocked.',
+  },
+  {
+    name: 'Slack Approval to Merge',
+    code: slackApprovalWorkflow,
+    description: 'Receives Slack approval decisions, merges approved PRs, or queues requested changes.',
   },
   {
     name: 'Website Checker',

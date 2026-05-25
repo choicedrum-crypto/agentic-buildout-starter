@@ -1,0 +1,39 @@
+{
+  "name": "Agent Result to GitHub and Plane",
+  "version": 1,
+  "runtime": "Hostinger n8n",
+  "purpose": "Receive OpenClaw callbacks from Codex or Hermes and sync Plane/GitHub state.",
+  "trigger": {
+    "type": "webhook",
+    "source": "OpenClaw",
+    "path": "/webhook/agent-result",
+    "events": [
+      "pr_opened",
+      "revision_pushed",
+      "completed",
+      "runner_failed",
+      "blocked"
+    ]
+  },
+  "required_metadata": [
+    "plane_issue_id",
+    "plane_project_id",
+    "github_issue_number",
+    "pr_number when a PR exists",
+    "runner",
+    "status"
+  ],
+  "core_logic": [
+    "Treat pr_opened, revision_pushed, and completed with a PR number as successful build handoff.",
+    "Treat runner_failed, failed, and blocked as blocked handoff.",
+    "Resolve the target Plane state by name in the Plane project.",
+    "Move successful handoffs to Review.",
+    "Move blocked handoffs to Blocked.",
+    "Update GitHub issue labels so humans can see whether a PR is open or the item is blocked."
+  ],
+  "safe_failure_handling": [
+    "Ignore callbacks without Plane issue and project metadata.",
+    "Do not move Plane state with hardcoded state IDs unless name resolution fails.",
+    "Do not send routine Slack notifications; PR review workflow owns approval notification."
+  ]
+}

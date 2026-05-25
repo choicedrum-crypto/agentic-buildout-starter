@@ -22,15 +22,43 @@ Use this checklist before trusting the automation with real work.
 - Confirm Plane receives a GitHub issue link comment or custom field update.
 - Confirm a failed GitHub API call leaves Plane in `Ready` and creates a visible failure note where possible.
 
-## GitHub PR to Slack
+## GitHub Issue to Agent Dispatch
+
+- Send a GitHub `issues.opened` payload with labels `plane`, `codex-ready`, and `automation`.
+- Confirm n8n ignores issues missing `plane_issue_id` or `plane_project_id`.
+- Confirm n8n ignores issues already labeled `codex-in-progress`, `hermes-in-progress`, `codex-pr-open`, `done`, or `blocked`.
+- Confirm n8n claims eligible issues with the correct runner in-progress label.
+- Confirm OpenClaw receives repo, GitHub issue, Plane issue, Plane project, runner, and callback URL.
+- Confirm Plane moves to `Building` only after OpenClaw dispatch is accepted.
+
+## Agent Result to GitHub and Plane
+
+- Send an OpenClaw `pr_opened` callback with Plane and GitHub metadata.
+- Confirm Plane moves to `Review`.
+- Confirm the GitHub issue receives `codex-pr-open`.
+- Send a `runner_failed` callback.
+- Confirm Plane moves to `Blocked` and the GitHub issue receives `blocked`.
+
+## GitHub PR to Slack Approval
 
 - Open a draft or test PR linked to a generated issue.
 - Confirm Plane-backed PRs include `plane_issue_id: <uuid>` in the PR body.
+- Confirm Plane-backed PRs include `plane_project_id: <uuid>` in the PR body.
 - Confirm GitHub webhook signature validation rejects bad signatures.
 - Confirm n8n moves linked Plane tasks to `Review` when a reviewable PR is opened.
 - Confirm Plane receives a PR review link comment when Plane context can be resolved.
-- Confirm Slack receives the PR / merge link.
+- Confirm Slack receives exactly one approval message with Approve, Request Changes, and Block actions.
 - Confirm checks show as pending, passing, failing, or unavailable without breaking the workflow.
+
+## Slack Approval to Merge
+
+- Click Approve on a test approval message.
+- Confirm n8n calls the GitHub PR merge endpoint.
+- Confirm GitHub branch protection still prevents merge if required checks are failing.
+- Click Request Changes on a test approval message.
+- Confirm n8n comments on the PR with `/codex revise`.
+- Click Block on a test approval message.
+- Confirm n8n comments on the PR and automation stops.
 
 ## PR Feedback to Codex Revision
 
@@ -51,7 +79,7 @@ Use this checklist before trusting the automation with real work.
 - Confirm the deploy job fails if `n8n-workflows/*.json` changed without a matching `scripts/build-n8n-workflows.mjs` change.
 - Confirm the deploy job publishes n8n workflows through `scripts/build-n8n-workflows.mjs` using GitHub Secrets.
 - Confirm deployment result resolves the merged PR's `plane_issue_id` when present.
-- Confirm Slack receives deployment success or failure.
+- Confirm Slack receives one completion notification on deployment success.
 - Confirm n8n moves Plane from `Deploying` to `Done` only on successful publish and verification.
 - Confirm n8n comments on and closes the linked GitHub source issue only after successful deploy.
 - Confirm n8n does not close a GitHub issue when the deploy PR lacks Plane metadata.
