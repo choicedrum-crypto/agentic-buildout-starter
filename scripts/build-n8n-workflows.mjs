@@ -2073,6 +2073,7 @@ for (const item of workflows) {
   if (item.createAndSwap) {
     const exact = await tool('search_workflows', { query: item.name, limit: 20 });
     const matches = getStructuredContent(exact).data || [];
+    const beforeIds = new Set(matches.map((workflowItem) => workflowItem.id).filter(Boolean));
     const existing =
       matches.find((workflowItem) => workflowItem.id === item.workflowId) ||
       matches.find((workflowItem) => workflowItem.name === item.name && workflowItem.active === true) ||
@@ -2084,7 +2085,15 @@ for (const item of workflows) {
       description: item.description,
     });
     const createdContent = getStructuredContent(created);
-    const createdWorkflowId = createdContent.workflow?.id || createdContent.workflowId || createdContent.id;
+    let createdWorkflowId = createdContent.workflow?.id || createdContent.workflowId || createdContent.id;
+    if (!createdWorkflowId) {
+      const afterCreate = await tool('search_workflows', { query: item.name, limit: 20 });
+      const afterMatches = getStructuredContent(afterCreate).data || [];
+      const createdCandidate = afterMatches.find(
+        (workflowItem) => workflowItem.name === item.name && workflowItem.id && !beforeIds.has(workflowItem.id),
+      );
+      createdWorkflowId = createdCandidate?.id;
+    }
     if (!createdWorkflowId) {
       console.log(JSON.stringify(created, null, 2));
       throw new Error(`Create-and-swap did not return a workflow ID for ${item.name}`);
