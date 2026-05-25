@@ -133,6 +133,9 @@ function buildEmailCategorizerRestWorkflow(name) {
     batch_limit: 25,
     tier3_confidence_threshold: 0.65,
     slack_exception_channel: '#workflow-builder',
+    audit_table: 'inbox_classifications',
+    manual_correction_table: 'inbox_classification_corrections',
+    workflow_version: name,
     tier3_provider: 'dbhub_ollama',
     local_llm_base_url: 'http://100.66.221.24:11434',
     local_llm_model: 'qwen2.5:7b',
@@ -188,6 +191,7 @@ const baseResults = messages.map((message, index) => {
   const messageId = message.id || message.internetMessageId || 'message-' + (index + 1);
   return {
     message_id: messageId,
+    internetMessageId: message.internetMessageId || null,
     subject: message.subject || '',
     from: addressOf(message.from),
     receivedDateTime: message.receivedDateTime || null,
@@ -277,6 +281,29 @@ const results = baseResults.map((result) => {
     error_text: tier3Error,
   };
 });
+const now = new Date().toISOString();
+const auditRows = results.map((result) => ({
+  classified_at: now,
+  message_id: result.message_id,
+  internet_message_id: result.internetMessageId || null,
+  subject: result.subject,
+  sender: result.from,
+  sender_domain: String(result.from || '').split('@').pop() || null,
+  received_at: result.receivedDateTime,
+  importance: result.importance,
+  has_attachments: result.hasAttachments,
+  original_categories: result.categories,
+  quadrant: result.quadrant,
+  outlook_category_label: config.outlook_category_map[result.quadrant] || result.quadrant,
+  tier_fired: result.tier_fired,
+  confidence: result.confidence,
+  rule_matched: result.tier_fired === 3 ? null : result.reason,
+  llm_rationale: result.tier_fired === 3 ? result.reason : null,
+  dry_run: config.dry_run,
+  applied_ok: false,
+  workflow_version: config.workflow_version,
+  error_text: result.error_text,
+}));
 
 return [{
   json: {
@@ -291,7 +318,9 @@ return [{
     local_llm_model: config.local_llm_model,
     messages: results.length,
     outlook_patch_status: 'disabled_dry_run',
-    audit_status: 'skipped_postgres_not_configured',
+    audit_status: 'prepared_postgres_pending_credential',
+    audit_table: config.audit_table,
+    audit_rows: auditRows,
     results,
   },
 }];

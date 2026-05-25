@@ -64,6 +64,22 @@ Use `scripts/email-categorizer-audit.sql` for the dedicated classifier Postgres 
 - `quadrant` as `Q1`, `Q2`, `Q3`, `Q4`, or `QR`.
 - `outlook_category_label` separately.
 - `tier_fired` as `0`, `1`, `2`, or `3`.
+- `workflow_version` so daily correction reviews can trace which deployed classifier version made the prediction.
+- `inbox_classification_corrections` rows for manual Outlook category changes detected later.
+
+The currently deployed dry-run workflow prepares `audit_rows` in its webhook response with `audit_status: prepared_postgres_pending_credential`. The next deployment step is to attach the n8n Postgres credential and insert those rows into `inbox_classifications`.
+
+## Manual Correction Review
+
+The daily correction workflow should:
+
+1. Read recent `inbox_classifications` rows that have not been reviewed for manual changes.
+2. Fetch the current Outlook categories for those message IDs.
+3. Compare `outlook_category_label` with the current Outlook category list.
+4. Insert a row into `inbox_classification_corrections` when Daniel manually changed the category.
+5. Avoid Slack summaries; this workflow only updates the audit database.
+
+Weekly rule suggestions should read new correction rows, group repeated sender/domain and subject-keyword patterns, and create a GitHub issue or PR through the established PR pipeline.
 
 This fixes the draft schema mismatch where Quarantine and tier zero states were not representable.
 

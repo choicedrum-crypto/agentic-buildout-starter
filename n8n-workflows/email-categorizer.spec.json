@@ -28,6 +28,8 @@
       "slack_exception_channel": "#workflow-builder",
       "classifier_mount_path": "/data/classifier",
       "audit_table": "inbox_classifications",
+      "manual_correction_table": "inbox_classification_corrections",
+      "workflow_version": "published workflow name",
       "tier3_provider": "dbhub_ollama",
       "local_llm_base_url": "http://100.66.221.24:11434",
       "local_llm_model": "qwen2.5:7b",
@@ -148,7 +150,14 @@
       "type": "Postgres",
       "name": "Insert Audit Row",
       "table": "inbox_classifications",
-      "notes": "Write a row for every attempted classification, including dry-run attempts and failures."
+      "notes": "Write a row for every attempted classification, including dry-run attempts and failures. Current REST fallback prepares audit_rows until the n8n Postgres credential is attached."
+    },
+    {
+      "id": "manual_correction_review",
+      "type": "Scheduled companion workflow",
+      "name": "Email Categorizer Correction Review",
+      "table": "inbox_classification_corrections",
+      "notes": "Nightly workflow compares audited predictions with current Outlook categories and stores manual category changes without Slack summaries."
     },
     {
       "id": "exception_filter",
