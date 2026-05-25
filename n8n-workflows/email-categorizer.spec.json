@@ -161,6 +161,13 @@
       "notes": "Nightly workflow compares audited predictions with current Outlook categories and stores manual category changes without Slack summaries."
     },
     {
+      "id": "weekly_rule_suggestion",
+      "type": "Scheduled companion workflow",
+      "name": "Email Categorizer Rule Suggestion",
+      "table": "inbox_classification_corrections",
+      "notes": "Weekly workflow groups new manual corrections, creates a GitHub issue with an @codex implementation request, and marks correction rows as proposed."
+    },
+    {
       "id": "exception_filter",
       "type": "IF",
       "name": "Exception Notification Needed?",

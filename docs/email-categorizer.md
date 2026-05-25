@@ -79,7 +79,7 @@ The daily correction workflow should:
 4. Insert a row into `inbox_classification_corrections` when Daniel manually changed the category.
 5. Avoid Slack summaries; this workflow only updates the audit database.
 
-Weekly rule suggestions should read new correction rows, group repeated sender/domain and subject-keyword patterns, and create a GitHub issue or PR through the established PR pipeline.
+Weekly rule suggestions read new correction rows, group repeated sender/domain and subject-keyword patterns, create a GitHub issue, comment an `@codex` implementation request, and mark those correction rows as `proposed`.
 
 This fixes the draft schema mismatch where Quarantine and tier zero states were not representable.
 
