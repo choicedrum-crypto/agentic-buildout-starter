@@ -354,56 +354,42 @@ function sqlNumber(value) {
   return Number.isFinite(Number(value)) ? String(Number(value)) : 'NULL';
 }
 
-return rows.map((row) => ({
-  json: {
-    query: \`
-      insert into inbox_classifications (
-        classified_at,
-        message_id,
-        internet_message_id,
-        subject,
-        sender,
-        sender_domain,
-        received_at,
-        importance,
-        has_attachments,
-        original_categories,
-        quadrant,
-        outlook_category_label,
-        tier_fired,
-        confidence,
-        rule_matched,
-        llm_rationale,
-        dry_run,
-        applied_ok,
-        workflow_version,
-        error_text
-      ) values (
-        \${sql(row.classified_at)}::timestamptz,
-        \${sql(row.message_id)},
-        \${sql(row.internet_message_id)},
-        \${sql(row.subject)},
-        \${sql(row.sender)},
-        \${sql(row.sender_domain)},
-        \${sql(row.received_at)}::timestamptz,
-        \${sql(row.importance)},
-        \${sqlBool(row.has_attachments)},
-        \${sqlJson(row.original_categories)},
-        \${sql(row.quadrant)},
-        \${sql(row.outlook_category_label)},
-        \${sqlNumber(row.tier_fired)},
-        \${sqlNumber(row.confidence)},
-        \${sql(row.rule_matched)},
-        \${sql(row.llm_rationale)},
-        \${sqlBool(row.dry_run)},
-        \${sqlBool(row.applied_ok)},
-        \${sql(row.workflow_version)},
-        \${sql(row.error_text)}
-      )
-      returning id
-    \`,
-  },
-}));
+return rows.map((row) => {
+  const values = [
+    sql(row.classified_at) + '::timestamptz',
+    sql(row.message_id),
+    sql(row.internet_message_id),
+    sql(row.subject),
+    sql(row.sender),
+    sql(row.sender_domain),
+    sql(row.received_at) + '::timestamptz',
+    sql(row.importance),
+    sqlBool(row.has_attachments),
+    sqlJson(row.original_categories),
+    sql(row.quadrant),
+    sql(row.outlook_category_label),
+    sqlNumber(row.tier_fired),
+    sqlNumber(row.confidence),
+    sql(row.rule_matched),
+    sql(row.llm_rationale),
+    sqlBool(row.dry_run),
+    sqlBool(row.applied_ok),
+    sql(row.workflow_version),
+    sql(row.error_text),
+  ];
+
+  return {
+    json: {
+      query: [
+        'insert into inbox_classifications (',
+        'classified_at, message_id, internet_message_id, subject, sender, sender_domain,',
+        'received_at, importance, has_attachments, original_categories, quadrant, outlook_category_label,',
+        'tier_fired, confidence, rule_matched, llm_rationale, dry_run, applied_ok, workflow_version, error_text',
+        ') values (' + values.join(', ') + ') returning id',
+      ].join(' '),
+    },
+  };
+});
 `;
 
   const restoreAuditResponseCode = String.raw`
