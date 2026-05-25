@@ -2778,6 +2778,314 @@ export default workflow('github-issue-codex-dispatch', 'GitHub Issue to Codex Di
     .onFalse(respondIgnored));
 `;
 
+const codexPrWatchdogWorkflow = `
+import { workflow, node, trigger, newCredential, ifElse, expr } from '@n8n/workflow-sdk';
+
+const manual = trigger({
+  type: 'n8n-nodes-base.manualTrigger',
+  version: 1,
+  config: { name: 'Manual Watchdog Run' }
+});
+
+const schedule = trigger({
+  type: 'n8n-nodes-base.scheduleTrigger',
+  version: 1.2,
+  config: {
+    name: 'Every 30 Minutes',
+    parameters: {
+      rule: {
+        interval: [
+          { field: 'minutes', minutesInterval: 30 }
+        ]
+      }
+    }
+  }
+});
+
+const testWebhook = trigger({
+  type: 'n8n-nodes-base.webhook',
+  version: 2.1,
+  config: {
+    name: 'Watchdog Test Webhook',
+    parameters: {
+      httpMethod: 'POST',
+      path: 'codex-pr-watchdog-test',
+      responseMode: 'onReceived'
+    }
+  }
+});
+
+const config = node({
+  type: 'n8n-nodes-base.set',
+  version: 3.4,
+  config: {
+    name: 'CONFIG',
+    parameters: {
+      mode: 'manual',
+      includeOtherFields: true,
+      assignments: {
+        assignments: [
+          { id: 'config-object', name: 'config', type: 'object', value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", stale_minutes: 60, slack_alert_channel: "#workflow-builder", public_n8n_base_url: "https://n8n.tradecredit.agency" } }}') }
+        ]
+      }
+    }
+  }
+});
+
+const buildSearch = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Build Stale Issue Search',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const config = $json.config || {};
+const body = $json.body || {};
+const staleMinutes = Number(body.stale_minutes || $json.stale_minutes || config.stale_minutes || 60);
+const staleBeforeIso = new Date(Date.now() - staleMinutes * 60 * 1000).toISOString();
+return { json: { ...$json, config: { ...config, stale_minutes: staleMinutes }, stale_before_iso: staleBeforeIso } };
+\`
+    }
+  }
+});
+
+const searchStaleIssues = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Search Stale Codex Issues',
+    parameters: {
+      method: 'GET',
+      url: expr('{{ "https://api.github.com/search/issues?q=" + encodeURIComponent("repo:" + $json.config.github_owner + "/" + $json.config.github_repo + " is:issue is:open label:plane label:codex-ready label:automation label:codex-in-progress -label:codex-pr-open -label:done -label:blocked updated:<" + $json.stale_before_iso) + "&sort=updated&order=asc&per_page=1" }}'),
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Accept', value: 'application/vnd.github+json' }] }
+    }
+  }
+});
+
+const extractCandidate = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Extract Watchdog Candidate',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const original = $('Build Stale Issue Search').item.json;
+const issue = Array.isArray($json.items) ? $json.items[0] : null;
+if (!issue) {
+  return { json: { ...original, has_candidate: false } };
+}
+const text = issue.body || '';
+const planeIssueId = text.match(/plane_issue_id:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] || '';
+const planeProjectId = text.match(/plane_project_id:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] || '';
+const planeUrl = text.match(/plane_url:\\\\s*(\\\\S+)/i)?.[1] || '';
+return {
+  json: {
+    ...original,
+    has_candidate: true,
+    issue_number: String(issue.number || ''),
+    issue_url: issue.html_url || '',
+    issue_title: issue.title || '',
+    issue_updated_at: issue.updated_at || '',
+    plane_issue_id: planeIssueId,
+    plane_project_id: planeProjectId,
+    plane_url: planeUrl,
+  },
+};
+\`
+    }
+  }
+});
+
+const hasCandidate = ifElse({
+  version: 2.3,
+  config: {
+    name: 'Has Stale Candidate?',
+    parameters: {
+      conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ String($json.has_candidate) }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'true' }], combinator: 'and' }
+    }
+  }
+});
+
+const searchPrs = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Search PRs for Plane Issue',
+    parameters: {
+      method: 'GET',
+      url: expr('{{ "https://api.github.com/search/issues?q=" + encodeURIComponent("repo:" + $json.config.github_owner + "/" + $json.config.github_repo + " type:pr is:open plane_issue_id: " + $json.plane_issue_id) + "&sort=created&order=desc&per_page=5" }}'),
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Accept', value: 'application/vnd.github+json' }] }
+    }
+  }
+});
+
+const resolvePr = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Resolve PR Watchdog Result',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const original = $('Extract Watchdog Candidate').item.json;
+const prs = (Array.isArray($json.items) ? $json.items : []).filter((item) => item.pull_request);
+const pr = prs[0];
+const hasPr = Boolean(pr?.html_url);
+const slackMessage = [
+  ':warning: Codex PR publication blocked',
+  'GitHub issue: ' + original.issue_url,
+  'Plane: ' + (original.plane_url || 'not provided'),
+  'Reason: Codex was requested and the issue stayed codex-in-progress for more than ' + (original.config.stale_minutes || 60) + ' minutes, but no open PR with the Plane metadata was found.',
+  'Next action: open the Codex task link from the issue comments, fix the Codex GitHub PR publication setting, then re-dispatch or create the PR manually.'
+].join('\\\\n');
+return { json: { ...original, has_open_pr: hasPr, pr_url: pr?.html_url || '', slack_message: slackMessage } };
+\`
+    }
+  }
+});
+
+const hasOpenPr = ifElse({
+  version: 2.3,
+  config: {
+    name: 'Open PR Found?',
+    parameters: {
+      conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ String($json.has_open_pr) }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'true' }], combinator: 'and' }
+    }
+  }
+});
+
+const markPrOpen = node({
+  type: 'n8n-nodes-base.github',
+  version: 1.1,
+  config: {
+    name: 'Mark Issue PR Open',
+    credentials: { githubApi: newCredential('${githubCredential}') },
+    parameters: {
+      resource: 'issue',
+      operation: 'edit',
+      authentication: 'accessToken',
+      owner: { __rl: true, mode: 'name', value: 'choicedrum-crypto' },
+      repository: { __rl: true, mode: 'name', value: 'agentic-buildout-starter' },
+      issueNumber: expr('{{ Number($json.issue_number) }}'),
+      editFields: { labels: [{ label: 'plane' }, { label: 'codex-ready' }, { label: 'automation' }, { label: 'codex-in-progress' }, { label: 'codex-pr-open' }] }
+    }
+  }
+});
+
+const commentMissingPr = node({
+  type: 'n8n-nodes-base.github',
+  version: 1.1,
+  config: {
+    name: 'Comment Missing PR Incident',
+    credentials: { githubApi: newCredential('${githubCredential}') },
+    parameters: {
+      resource: 'issue',
+      operation: 'createComment',
+      authentication: 'accessToken',
+      owner: { __rl: true, mode: 'name', value: 'choicedrum-crypto' },
+      repository: { __rl: true, mode: 'name', value: 'agentic-buildout-starter' },
+      issueNumber: expr('{{ Number($json.issue_number) }}'),
+      body: expr('{{ "Codex PR publication watchdog marked this issue blocked. Codex was requested, but no open PR containing plane_issue_id " + ($json.plane_issue_id || "unknown") + " was found after " + ($json.config.stale_minutes || 60) + " minutes. Check the Codex task link in the issue comments, repair the connector PR publication path, then re-dispatch or create the PR manually." }}')
+    }
+  }
+});
+
+const markBlocked = node({
+  type: 'n8n-nodes-base.github',
+  version: 1.1,
+  config: {
+    name: 'Mark Issue Blocked',
+    credentials: { githubApi: newCredential('${githubCredential}') },
+    parameters: {
+      resource: 'issue',
+      operation: 'edit',
+      authentication: 'accessToken',
+      owner: { __rl: true, mode: 'name', value: 'choicedrum-crypto' },
+      repository: { __rl: true, mode: 'name', value: 'agentic-buildout-starter' },
+      issueNumber: expr('{{ Number($("Resolve PR Watchdog Result").item.json.issue_number) }}'),
+      editFields: { labels: [{ label: 'plane' }, { label: 'codex-ready' }, { label: 'automation' }, { label: 'codex-in-progress' }, { label: 'codex-pr-missing' }, { label: 'blocked' }] }
+    }
+  }
+});
+
+const restoreBlockedContext = node({
+  type: 'n8n-nodes-base.set',
+  version: 3.4,
+  config: {
+    name: 'Restore Blocked Slack Context',
+    parameters: {
+      mode: 'manual',
+      includeOtherFields: true,
+      assignments: {
+        assignments: [
+          { id: 'slack-message', name: 'slack_message', type: 'string', value: expr('{{ $("Resolve PR Watchdog Result").item.json.slack_message }}') },
+          { id: 'slack-channel', name: 'slack_alert_channel', type: 'string', value: expr('{{ $("Resolve PR Watchdog Result").item.json.config.slack_alert_channel }}') }
+        ]
+      }
+    }
+  }
+});
+
+const slackBlocked = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Send Slack Missing PR Alert',
+    alwaysOutputData: true,
+    continueOnFail: true,
+    credentials: { httpHeaderAuth: newCredential('${slackHttpCredential}') },
+    parameters: {
+      method: 'POST',
+      url: 'https://slack.com/api/chat.postMessage',
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] },
+      sendBody: true,
+      contentType: 'json',
+      specifyBody: 'json',
+      jsonBody: expr('{{ { channel: $json.slack_alert_channel || "#workflow-builder", text: $json.slack_message } }}')
+    }
+  }
+});
+
+const noStaleCandidate = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'No Stale Candidate',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: 'return { json: { ...$json, ok: true, action: "no_stale_codex_issues" } };'
+    }
+  }
+});
+
+export default workflow('codex-pr-publication-watchdog', 'Codex PR Publication Watchdog')
+  .add(manual)
+  .to(config)
+  .add(schedule)
+  .to(config)
+  .add(testWebhook)
+  .to(config)
+  .to(buildSearch)
+  .to(searchStaleIssues)
+  .to(extractCandidate)
+  .to(hasCandidate
+    .onTrue(searchPrs.to(resolvePr).to(hasOpenPr
+      .onTrue(markPrOpen)
+      .onFalse(commentMissingPr.to(markBlocked).to(restoreBlockedContext).to(slackBlocked))))
+    .onFalse(noStaleCandidate));
+`;
+
 const slackApprovalWorkflow = `
 import { workflow, node, newCredential, trigger, ifElse, expr } from '@n8n/workflow-sdk';
 
@@ -2947,6 +3255,12 @@ let workflows = [
     name: 'GitHub Issue to Codex Dispatch',
     code: codexDispatchWorkflow,
     description: 'Claims Codex-ready GitHub issues from Plane and dispatches them to the Codex build entrypoint.',
+  },
+  {
+    name: 'Codex PR Publication Watchdog',
+    workflowId: 'nRQEyuJdrS1u0cFC',
+    code: codexPrWatchdogWorkflow,
+    description: 'Checks Codex-dispatched issues for missing PR publication and sends a blocked Slack alert when no PR appears.',
   },
   {
     name: 'Slack Approval to Merge',

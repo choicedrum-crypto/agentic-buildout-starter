@@ -92,6 +92,22 @@ Core logic:
 4. On `Block`, comment on the PR and stop automation.
 5. Let GitHub branch protection prevent unsafe merges.
 
+## Workflow B4: Codex PR Publication Watchdog
+
+Spec: `n8n-workflows/codex-pr-publication-watchdog.spec.json`
+
+Trigger:
+- Scheduled every 30 minutes.
+
+Core logic:
+1. Search for the oldest open GitHub issue labeled `plane`, `codex-ready`, `automation`, and `codex-in-progress` that has not been updated for `CONFIG.stale_minutes`.
+2. Ignore issues already labeled `codex-pr-open`, `done`, or `blocked`.
+3. Search open PRs for the Plane metadata from the issue body.
+4. If a PR exists, label the issue `codex-pr-open`.
+5. If no PR exists, comment on the issue, label it `codex-pr-missing` and `blocked`, and send one Slack exception message.
+
+This workflow exists because the Codex connector can acknowledge work in a GitHub comment before a branch or PR is actually visible in GitHub. The watchdog keeps that connector failure from silently stalling the Plane-to-deploy loop.
+
 ## Workflow C: Deployment Result to Plane and Slack
 
 Spec: `n8n-workflows/deployment-result-to-plane-slack.spec.json`

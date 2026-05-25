@@ -1,0 +1,34 @@
+{
+  "name": "Codex PR Publication Watchdog",
+  "version": 1,
+  "runtime": "Hostinger n8n",
+  "purpose": "Detect Codex-dispatched GitHub issues where Codex acknowledged work but no GitHub PR was published, then mark the issue blocked and notify Slack once.",
+  "trigger": {
+    "type": "schedule",
+    "frequency": "every 30 minutes",
+    "test_path": "/webhook/codex-pr-watchdog-test"
+  },
+  "credentials": [
+    "GitHub API credential in n8n",
+    "Slack Bot HTTP Bearer credential in n8n"
+  ],
+  "eligibility": [
+    "Open GitHub issue has labels plane, codex-ready, automation, and codex-in-progress.",
+    "Issue does not have labels codex-pr-open, done, or blocked.",
+    "Issue has not been updated for CONFIG.stale_minutes.",
+    "Issue body includes plane_issue_id."
+  ],
+  "core_logic": [
+    "Search for one oldest stale Codex-in-progress issue per run to avoid Slack floods.",
+    "Search open pull requests for the Plane issue metadata.",
+    "If an open PR exists, label the source issue codex-pr-open.",
+    "If no open PR exists, comment on the issue, apply codex-pr-missing and blocked labels, and notify Slack.",
+    "Blocked labels exclude the issue from future watchdog runs."
+  ],
+  "safe_failure_handling": [
+    "Do not send Slack on the happy path.",
+    "Send exactly one exception Slack message per blocked missing-PR incident.",
+    "Do not create or retry Codex requests automatically; humans should inspect the Codex task link and repair connector PR publication.",
+    "Do not include secrets or raw webhook payloads in GitHub comments or Slack messages."
+  ]
+}
