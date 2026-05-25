@@ -33,8 +33,7 @@ The deployment workflow currently contains a placeholder deploy step. Replace on
 Suggested webhook paths:
 
 - `/webhook/plane-ready`
-- `/webhook/github-issue-agent-dispatch`
-- `/webhook/agent-result`
+- `/webhook/github-issue-codex-dispatch`
 - `/webhook/github-pr-review`
 - `/webhook/slack-agent-approval`
 - `/webhook/github-deploy-result`
@@ -52,7 +51,7 @@ Suggested webhook paths:
 Create GitHub webhooks pointing to Hostinger n8n:
 
 - Pull request webhook -> `/webhook/github-pr-review`
-- Issues webhook -> `/webhook/github-issue-agent-dispatch`
+- Issues webhook -> `/webhook/github-issue-codex-dispatch`
 - Issue comment webhook -> `/webhook/github-pr-feedback`
 - Workflow run webhook -> `/webhook/github-deploy-result`
 
@@ -72,11 +71,10 @@ Configure Slack interactivity to send button callbacks to `/webhook/slack-agent-
 
 1. Plane task moves to `Ready`.
 2. n8n creates the GitHub issue.
-3. n8n dispatches the issue to OpenClaw.
-4. OpenClaw routes the task to Codex by default, or Hermes for bounded small tasks.
-5. Codex creates a feature branch, implements the change, validates locally, and opens a PR.
-6. GitHub Actions checks the PR.
-7. Slack receives one approval message with Approve, Request Changes, and Block buttons.
-8. Approval merges the PR through GitHub branch protection.
-9. GitHub Actions deploys from `main`.
-10. n8n updates Plane, closes the GitHub issue, and sends one completion message.
+3. n8n dispatches Codex to build the issue.
+4. Codex creates a feature branch, implements the change, validates locally, and opens a PR.
+5. GitHub Actions checks the PR.
+6. Slack receives one approval message with Approve, Request Changes, and Block buttons.
+7. Approval merges the PR through GitHub branch protection.
+8. GitHub Actions deploys from `main`.
+9. n8n updates Plane, closes the GitHub issue, and sends one completion message.

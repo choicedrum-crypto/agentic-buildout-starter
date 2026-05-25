@@ -602,7 +602,6 @@ const title = issue.name || issue.title || body.title || 'Plane task ready for C
 const description = issue.description_html || issue.description_stripped || issue.description || body.description || '';
 const planeUrl = issue.url || issue.web_url || body.url || body.issue_url || '';
 const existing = issue.github_issue_url || issue.external_id || body.github_issue_url || '';
-const runner = issue.runner || issue.properties?.runner || issue.custom_properties?.runner || body.runner || 'auto';
 const readyByName = String(stateValue).toLowerCase() === String(config.plane_ready_state_name || 'Ready').toLowerCase();
 const readyById = String(stateId) === String(config.plane_ready_state_id || '');
 const ready = readyByName || readyById;
@@ -638,10 +637,9 @@ const issueBody = [
   'plane_url: ' + planeUrl,
   'plane_workspace_slug: ' + (config.plane_workspace_slug || ''),
   'github_issue_number: pending',
-  'runner: ' + runner,
-  'source_workflow: Plane Ready to GitHub Issue'
+  'source_workflow: Plane Ready to GitHub Issue',
 ].join('\\\\n');
-return { json: { ...$json, config, plane_issue_id: planeIssueId, plane_project_id: planeProjectId, runner, plane_issue_key: planeIssueKey, plane_title: title, plane_description: description, plane_state: stateValue, plane_state_id: stateId, plane_url: planeUrl, existing_github_issue_url: existing, ready, has_existing_github_issue: Boolean(existing), github_issue_title: '[Plane] ' + title, github_issue_body: issueBody } };
+return { json: { ...$json, config, plane_issue_id: planeIssueId, plane_project_id: planeProjectId, plane_issue_key: planeIssueKey, plane_title: title, plane_description: description, plane_state: stateValue, plane_state_id: stateId, plane_url: planeUrl, existing_github_issue_url: existing, ready, has_existing_github_issue: Boolean(existing), github_issue_title: '[Plane] ' + title, github_issue_body: issueBody } };
 \`
     }
   }
@@ -2558,13 +2556,13 @@ export default workflow('deployment-result-plane-slack', 'Deployment Result to P
     .onFalse(respondIgnored));
 `;
 
-const issueDispatchWorkflow = `
+const codexDispatchWorkflow = `
 import { workflow, node, trigger, newCredential, ifElse, expr } from '@n8n/workflow-sdk';
 
 const githubIssueWebhook = trigger({
   type: 'n8n-nodes-base.webhook',
   version: 2.1,
-  config: { name: 'GitHub Issue Dispatch Webhook', parameters: { httpMethod: 'POST', path: 'github-issue-agent-dispatch', authentication: 'none', responseMode: 'responseNode', options: { rawBody: true } } }
+  config: { name: 'GitHub Issue Dispatch Webhook', parameters: { httpMethod: 'POST', path: 'github-issue-codex-dispatch', authentication: 'none', responseMode: 'responseNode', options: { rawBody: true } } }
 });
 
 const config = node({
@@ -2577,7 +2575,7 @@ const config = node({
       includeOtherFields: true,
       assignments: {
         assignments: [
-          { id: 'config-object', name: 'config', type: 'object', value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", plane_api_base_url: "https://api.plane.so", plane_workspace_slug: "tcia", plane_building_state_name: "Building", plane_building_state_id: "57e8338f-7181-44f6-9f5e-806a425ec6b2", openclaw_dispatch_url: "https://openclaw.local/webhook/agent-dispatch", public_n8n_base_url: "https://n8n.tradecredit.agency" } }}') }
+          { id: 'config-object', name: 'config', type: 'object', value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", plane_api_base_url: "https://api.plane.so", plane_workspace_slug: "tcia", plane_building_state_name: "Building", plane_building_state_id: "57e8338f-7181-44f6-9f5e-806a425ec6b2", codex_dispatch_url: "https://codex.example.invalid/webhook/github-issue-ready", public_n8n_base_url: "https://n8n.tradecredit.agency" } }}') }
         ]
       }
     }
@@ -2602,14 +2600,12 @@ const text = issue.body || '';
 const planeIssueId = text.match(/plane_issue_id:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] || '';
 const planeProjectId = text.match(/plane_project_id:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] || '';
 const planeUrl = text.match(/plane_url:\\\\s*(\\\\S+)/i)?.[1] || '';
-const runner = (text.match(/runner:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] || 'auto').toLowerCase();
 const issueNumber = issue.number || body.issue_number || '';
 const eligibleAction = ['opened', 'edited', 'labeled', 'reopened'].includes(action);
 const hasQueueLabels = ['plane', 'codex-ready', 'automation'].every((label) => labels.includes(label));
-const alreadyClaimed = ['codex-in-progress', 'hermes-in-progress', 'codex-pr-open', 'done', 'blocked'].some((label) => labels.includes(label));
+const alreadyClaimed = ['codex-in-progress', 'codex-pr-open', 'done', 'blocked'].some((label) => labels.includes(label));
 const isPullRequest = Boolean(issue.pull_request);
 const eligible = eligibleAction && hasQueueLabels && !alreadyClaimed && !isPullRequest && Boolean(issueNumber && planeIssueId && planeProjectId);
-const resolvedRunner = runner === 'hermes' ? 'hermes' : 'codex';
 return {
   json: {
     ...$json,
@@ -2622,19 +2618,16 @@ return {
     plane_issue_id: planeIssueId,
     plane_project_id: planeProjectId,
     plane_url: planeUrl,
-    runner: resolvedRunner,
-    claim_label: resolvedRunner === 'hermes' ? 'hermes-in-progress' : 'codex-in-progress',
     dispatch_payload: {
       source: 'n8n',
-      event: 'github_issue_ready',
+      event: 'codex_issue_ready',
       repo: config.github_owner + '/' + config.github_repo,
       github_issue_number: Number(issueNumber || 0),
       github_issue_url: issue.html_url || '',
       plane_issue_id: planeIssueId,
       plane_project_id: planeProjectId,
       plane_url: planeUrl,
-      runner: resolvedRunner,
-      callback_url: (config.public_n8n_base_url || '').replace(/\\\\/$/, '') + '/webhook/agent-result'
+      expected_pr_metadata: ['plane_issue_id', 'plane_project_id', 'github_issue_number', 'plane_url']
     }
   }
 };
@@ -2666,19 +2659,19 @@ const claimIssue = node({
       owner: { __rl: true, mode: 'name', value: 'choicedrum-crypto' },
       repository: { __rl: true, mode: 'name', value: 'agentic-buildout-starter' },
       issueNumber: expr('{{ Number($json.issue_number) }}'),
-      editFields: { labels: [{ label: 'plane' }, { label: 'codex-ready' }, { label: 'automation' }, { label: expr('{{ $("Extract Dispatch Context").item.json.claim_label }}') }] }
+      editFields: { labels: [{ label: 'plane' }, { label: 'codex-ready' }, { label: 'automation' }, { label: 'codex-in-progress' }] }
     }
   }
 });
 
-const dispatchOpenClaw = node({
+const dispatchCodex = node({
   type: 'n8n-nodes-base.httpRequest',
   version: 4.4,
   config: {
-    name: 'Dispatch OpenClaw Agent',
+    name: 'Dispatch Codex Build',
     parameters: {
       method: 'POST',
-      url: expr('{{ $("Extract Dispatch Context").item.json.config.openclaw_dispatch_url }}'),
+      url: expr('{{ $("Extract Dispatch Context").item.json.config.codex_dispatch_url }}'),
       sendHeaders: true,
       headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] },
       sendBody: true,
@@ -2747,160 +2740,15 @@ const movePlaneBuilding = node({
   }
 });
 
-const respondDispatched = node({ type: 'n8n-nodes-base.respondToWebhook', version: 1.5, config: { name: 'Respond Dispatched', parameters: { respondWith: 'json', responseBody: expr('{{ { ok: true, action: "agent_dispatched", runner: $("Extract Dispatch Context").item.json.runner, issue_number: $("Extract Dispatch Context").item.json.issue_number, plane_issue_id: $("Extract Dispatch Context").item.json.plane_issue_id } }}'), options: { responseCode: 200 } } } });
+const respondDispatched = node({ type: 'n8n-nodes-base.respondToWebhook', version: 1.5, config: { name: 'Respond Dispatched', parameters: { respondWith: 'json', responseBody: expr('{{ { ok: true, action: "codex_dispatched", issue_number: $("Extract Dispatch Context").item.json.issue_number, plane_issue_id: $("Extract Dispatch Context").item.json.plane_issue_id } }}'), options: { responseCode: 200 } } } });
 const respondIgnored = node({ type: 'n8n-nodes-base.respondToWebhook', version: 1.5, config: { name: 'Respond Ignored', parameters: { respondWith: 'json', responseBody: expr('{{ { ok: true, action: "ignored_issue_not_eligible", github_action: $json.action, issue_number: $json.issue_number || "" } }}'), options: { responseCode: 200 } } } });
 
-export default workflow('github-issue-agent-dispatch', 'GitHub Issue to Agent Dispatch')
+export default workflow('github-issue-codex-dispatch', 'GitHub Issue to Codex Dispatch')
   .add(githubIssueWebhook)
   .to(config)
   .to(extract)
   .to(shouldDispatch
-    .onTrue(claimIssue.to(dispatchOpenClaw).to(listPlaneBuildingStates).to(resolveBuildingState).to(movePlaneBuilding).to(respondDispatched))
-    .onFalse(respondIgnored));
-`;
-
-const agentResultWorkflow = `
-import { workflow, node, trigger, newCredential, ifElse, expr } from '@n8n/workflow-sdk';
-
-const agentResultWebhook = trigger({
-  type: 'n8n-nodes-base.webhook',
-  version: 2.1,
-  config: { name: 'Agent Result Webhook', parameters: { httpMethod: 'POST', path: 'agent-result', authentication: 'none', responseMode: 'responseNode', options: { rawBody: true } } }
-});
-
-const config = node({
-  type: 'n8n-nodes-base.set',
-  version: 3.4,
-  config: {
-    name: 'CONFIG',
-    parameters: {
-      mode: 'manual',
-      includeOtherFields: true,
-      assignments: { assignments: [{ id: 'config-object', name: 'config', type: 'object', value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", plane_api_base_url: "https://api.plane.so", plane_workspace_slug: "tcia", plane_review_state_name: "Review", plane_review_state_id: "0948b422-5c0c-4c37-b34d-0a358e156a6f", plane_blocked_state_name: "Blocked", plane_blocked_state_id: "8ea8d880-15b2-4201-8fbc-358ba54e5b54" } }}') }] }
-    }
-  }
-});
-
-const extract = node({
-  type: 'n8n-nodes-base.code',
-  version: 2,
-  config: {
-    name: 'Extract Agent Result',
-    parameters: {
-      mode: 'runOnceForEachItem',
-      language: 'javaScript',
-      jsCode: \`
-const config = $json.config || {};
-const body = $json.body || $json;
-const status = String(body.status || body.event || '').toLowerCase();
-const prNumber = body.pr_number || body.pull_request_number || '';
-const issueNumber = body.github_issue_number || body.issue_number || '';
-const planeIssueId = body.plane_issue_id || '';
-const planeProjectId = body.plane_project_id || '';
-const success = ['pr_opened', 'revision_pushed', 'completed'].includes(status) && Boolean(prNumber);
-const blocked = ['blocked', 'failed', 'runner_failed'].includes(status);
-const targetStateName = success ? config.plane_review_state_name : config.plane_blocked_state_name;
-return { json: { ...$json, config, status, success, blocked, pr_number: String(prNumber || ''), issue_number: String(issueNumber || ''), plane_issue_id: planeIssueId, plane_project_id: planeProjectId, pr_url: body.pr_url || '', target_state_name: targetStateName } };
-\`
-    }
-  }
-});
-
-const shouldSync = ifElse({
-  version: 2.3,
-  config: {
-    name: 'Result Syncable?',
-    parameters: {
-      conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ String(Boolean($json.plane_issue_id && $json.plane_project_id && ($json.success || $json.blocked))) }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'true' }], combinator: 'and' }
-    }
-  }
-});
-
-const listPlaneStates = node({
-  type: 'n8n-nodes-base.httpRequest',
-  version: 4.4,
-  config: {
-    name: 'List Plane Result States',
-    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
-    parameters: {
-      method: 'GET',
-      url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.plane_project_id + "/states/" }}'),
-      authentication: 'genericCredentialType',
-      genericAuthType: 'httpHeaderAuth',
-      sendHeaders: true,
-      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] }
-    }
-  }
-});
-
-const resolveState = node({
-  type: 'n8n-nodes-base.code',
-  version: 2,
-  config: {
-    name: 'Resolve Agent Result State',
-    parameters: {
-      mode: 'runOnceForEachItem',
-      language: 'javaScript',
-      jsCode: \`
-const original = $('Extract Agent Result').item.json;
-const states = Array.isArray($json.results) ? $json.results : (Array.isArray($json) ? $json : []);
-const state = states.find((item) => String(item.name || '').toLowerCase() === String(original.target_state_name || '').toLowerCase());
-return { json: { ...original, plane_state_id: state?.id || (original.success ? original.config.plane_review_state_id : original.config.plane_blocked_state_id) } };
-\`
-    }
-  }
-});
-
-const updatePlane = node({
-  type: 'n8n-nodes-base.httpRequest',
-  version: 4.4,
-  config: {
-    name: 'Update Plane from Agent Result',
-    alwaysOutputData: true,
-    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
-    parameters: {
-      method: 'PATCH',
-      url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.plane_project_id + "/work-items/" + $json.plane_issue_id + "/" }}'),
-      authentication: 'genericCredentialType',
-      genericAuthType: 'httpHeaderAuth',
-      sendHeaders: true,
-      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] },
-      sendBody: true,
-      contentType: 'json',
-      specifyBody: 'json',
-      jsonBody: expr('{{ { state: $json.plane_state_id } }}')
-    }
-  }
-});
-
-const updateIssueLabels = node({
-  type: 'n8n-nodes-base.github',
-  version: 1.1,
-  config: {
-    name: 'Update GitHub Issue Labels',
-    continueOnFail: true,
-    credentials: { githubApi: newCredential('${githubCredential}') },
-    parameters: {
-      resource: 'issue',
-      operation: 'edit',
-      authentication: 'accessToken',
-      owner: { __rl: true, mode: 'name', value: 'choicedrum-crypto' },
-      repository: { __rl: true, mode: 'name', value: 'agentic-buildout-starter' },
-      issueNumber: expr('{{ Number($("Extract Agent Result").item.json.issue_number || 0) }}'),
-      editFields: { labels: [{ label: 'plane' }, { label: 'automation' }, { label: expr('{{ $("Extract Agent Result").item.json.success ? "codex-pr-open" : "blocked" }}') }] }
-    }
-  }
-});
-
-const respondSynced = node({ type: 'n8n-nodes-base.respondToWebhook', version: 1.5, config: { name: 'Respond Agent Result Synced', parameters: { respondWith: 'json', responseBody: expr('{{ { ok: true, action: "agent_result_synced", status: $("Extract Agent Result").item.json.status, pr_number: $("Extract Agent Result").item.json.pr_number } }}'), options: { responseCode: 200 } } } });
-const respondIgnored = node({ type: 'n8n-nodes-base.respondToWebhook', version: 1.5, config: { name: 'Respond Agent Result Ignored', parameters: { respondWith: 'json', responseBody: expr('{{ { ok: true, action: "ignored_agent_result", status: $json.status || "" } }}'), options: { responseCode: 200 } } } });
-
-export default workflow('agent-result-github-plane', 'Agent Result to GitHub and Plane')
-  .add(agentResultWebhook)
-  .to(config)
-  .to(extract)
-  .to(shouldSync
-    .onTrue(listPlaneStates.to(resolveState).to(updatePlane).to(updateIssueLabels).to(respondSynced))
+    .onTrue(claimIssue.to(dispatchCodex).to(listPlaneBuildingStates).to(resolveBuildingState).to(movePlaneBuilding).to(respondDispatched))
     .onFalse(respondIgnored));
 `;
 
@@ -3070,14 +2918,9 @@ let workflows = [
     description: 'Receives /codex revise PR comments, moves Plane back to In Progress, and notifies Slack that Codex should revise the PR branch.',
   },
   {
-    name: 'GitHub Issue to Agent Dispatch',
-    code: issueDispatchWorkflow,
-    description: 'Claims Codex-ready GitHub issues from Plane and dispatches them through OpenClaw to Codex or Hermes.',
-  },
-  {
-    name: 'Agent Result to GitHub and Plane',
-    code: agentResultWorkflow,
-    description: 'Receives OpenClaw agent results, updates GitHub labels, and moves linked Plane work to Review or Blocked.',
+    name: 'GitHub Issue to Codex Dispatch',
+    code: codexDispatchWorkflow,
+    description: 'Claims Codex-ready GitHub issues from Plane and dispatches them to the Codex build entrypoint.',
   },
   {
     name: 'Slack Approval to Merge',

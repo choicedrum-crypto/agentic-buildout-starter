@@ -22,22 +22,14 @@ Use this checklist before trusting the automation with real work.
 - Confirm Plane receives a GitHub issue link comment or custom field update.
 - Confirm a failed GitHub API call leaves Plane in `Ready` and creates a visible failure note where possible.
 
-## GitHub Issue to Agent Dispatch
+## GitHub Issue to Codex Dispatch
 
 - Send a GitHub `issues.opened` payload with labels `plane`, `codex-ready`, and `automation`.
 - Confirm n8n ignores issues missing `plane_issue_id` or `plane_project_id`.
-- Confirm n8n ignores issues already labeled `codex-in-progress`, `hermes-in-progress`, `codex-pr-open`, `done`, or `blocked`.
-- Confirm n8n claims eligible issues with the correct runner in-progress label.
-- Confirm OpenClaw receives repo, GitHub issue, Plane issue, Plane project, runner, and callback URL.
-- Confirm Plane moves to `Building` only after OpenClaw dispatch is accepted.
-
-## Agent Result to GitHub and Plane
-
-- Send an OpenClaw `pr_opened` callback with Plane and GitHub metadata.
-- Confirm Plane moves to `Review`.
-- Confirm the GitHub issue receives `codex-pr-open`.
-- Send a `runner_failed` callback.
-- Confirm Plane moves to `Blocked` and the GitHub issue receives `blocked`.
+- Confirm n8n ignores issues already labeled `codex-in-progress`, `codex-pr-open`, `done`, or `blocked`.
+- Confirm n8n claims eligible issues with `codex-in-progress`.
+- Confirm Codex receives repo, GitHub issue, Plane issue, and Plane project metadata.
+- Confirm Plane moves to `Building` only after Codex dispatch is accepted.
 
 ## GitHub PR to Slack Approval
 

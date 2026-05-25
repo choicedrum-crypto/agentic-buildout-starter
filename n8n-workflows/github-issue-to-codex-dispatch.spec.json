@@ -1,12 +1,12 @@
 {
-  "name": "GitHub Issue to Agent Dispatch",
+  "name": "GitHub Issue to Codex Dispatch",
   "version": 1,
   "runtime": "Hostinger n8n",
-  "purpose": "Claim Codex-ready GitHub issues created from Plane and dispatch them through OpenClaw to Codex or Hermes.",
+  "purpose": "Claim Codex-ready GitHub issues created from Plane and dispatch them to the Codex build entrypoint.",
   "trigger": {
     "type": "webhook",
     "source": "GitHub",
-    "path": "/webhook/github-issue-agent-dispatch",
+    "path": "/webhook/github-issue-codex-dispatch",
     "events": [
       "issues"
     ],
@@ -20,30 +20,33 @@
   "eligibility": [
     "Issue is open.",
     "Labels include plane, codex-ready, and automation.",
-    "Labels do not include codex-in-progress, hermes-in-progress, codex-pr-open, done, or blocked.",
+    "Labels do not include codex-in-progress, codex-pr-open, done, or blocked.",
     "Issue body includes plane_issue_id and plane_project_id.",
     "Issue is not a pull request."
   ],
   "core_logic": [
-    "Parse Plane metadata and runner from the GitHub issue body.",
-    "Resolve runner auto to codex unless the issue explicitly asks for hermes.",
-    "Claim the GitHub issue with an in-progress label.",
-    "Dispatch OpenClaw with repo, GitHub issue, Plane issue, Plane project, runner, and callback URL.",
+    "Parse Plane metadata from the GitHub issue body.",
+    "Claim the GitHub issue with codex-in-progress.",
+    "Dispatch the configured Codex build endpoint with repo, GitHub issue, Plane issue, and Plane project metadata.",
     "Resolve the Plane Building state by name within the issue project.",
-    "Move the Plane item to Building only after dispatch is accepted.",
+    "Move the Plane item to Building only after Codex dispatch succeeds.",
     "Ignore duplicate or already-claimed webhook deliveries."
   ],
-  "openclaw_payload": {
+  "codex_payload": {
     "source": "n8n",
-    "event": "github_issue_ready",
+    "event": "codex_issue_ready",
     "repo": "owner/repo",
     "github_issue_number": 123,
     "github_issue_url": "https://github.com/owner/repo/issues/123",
     "plane_issue_id": "uuid",
     "plane_project_id": "uuid",
     "plane_url": "https://app.plane.so/...",
-    "runner": "codex",
-    "callback_url": "https://n8n.example.com/webhook/agent-result"
+    "expected_pr_metadata": [
+      "plane_issue_id",
+      "plane_project_id",
+      "github_issue_number",
+      "plane_url"
+    ]
   },
   "safe_failure_handling": [
     "Do not dispatch if required metadata is missing.",

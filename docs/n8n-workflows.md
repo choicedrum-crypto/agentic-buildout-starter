@@ -62,9 +62,9 @@ Slack approval message must include:
 - Summary and risk notes from the PR body where available.
 - Buttons for `Approve`, `Request Changes`, and `Block`.
 
-## Workflow B2: GitHub Issue to Agent Dispatch
+## Workflow B2: GitHub Issue to Codex Dispatch
 
-Spec: `n8n-workflows/github-issue-to-agent-dispatch.spec.json`
+Spec: `n8n-workflows/github-issue-to-codex-dispatch.spec.json`
 
 Trigger:
 - GitHub `issues` webhook for opened, edited, labeled, and reopened events.
@@ -72,27 +72,13 @@ Trigger:
 Core logic:
 1. Continue only for open issues labeled `plane`, `codex-ready`, and `automation`.
 2. Ignore issues already labeled in-progress, PR-open, done, or blocked.
-3. Parse `plane_issue_id`, `plane_project_id`, `runner`, and Plane URL from the issue body.
+3. Parse `plane_issue_id`, `plane_project_id`, and Plane URL from the issue body.
 4. Claim the issue with a visible in-progress label.
-5. Dispatch OpenClaw with a compact task package for Codex or Hermes.
+5. Dispatch Codex with the GitHub issue and Plane metadata.
 6. Resolve the Plane `Building` state by name in the Plane project.
 7. Move Plane to `Building` after dispatch succeeds.
 
-## Workflow B3: Agent Result to GitHub and Plane
-
-Spec: `n8n-workflows/agent-result-to-github-plane.spec.json`
-
-Trigger:
-- OpenClaw callback to `/webhook/agent-result`.
-
-Core logic:
-1. Accept callbacks such as `pr_opened`, `revision_pushed`, `completed`, `runner_failed`, and `blocked`.
-2. Require Plane issue and project metadata.
-3. Move successful PR handoffs to `Review`.
-4. Move failed or blocked handoffs to `Blocked`.
-5. Update GitHub issue labels so the queue remains visible.
-
-## Workflow B4: Slack Approval to Merge
+## Workflow B3: Slack Approval to Merge
 
 Spec: `n8n-workflows/slack-approval-to-merge.spec.json`
 
