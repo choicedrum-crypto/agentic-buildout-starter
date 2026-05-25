@@ -63,6 +63,7 @@ Email categorizer workflow CONFIG values:
 - `tier3_provider`, default `dbhub_ollama`
 - `local_llm_base_url`
 - `local_llm_model`
+- `enable_tier3_local_llm`, default `true` for dry-run Tier 3 review
 
 ## Secret Handling Rules
 
