@@ -9,6 +9,7 @@ Add these in GitHub: repo -> Settings -> Secrets and variables -> Actions.
 - `SLACK_WEBHOOK_URL` - Slack incoming webhook used by the deploy-after-merge workflow for deployment results.
 - `N8N_BASE_URL` - Hostinger n8n API/MCP endpoint used by the post-merge deploy job to publish workflows.
 - `N8N_API_KEY` - n8n API key used by the post-merge deploy job. Store only in GitHub Secrets.
+- `N8N_REST_API_KEY` - n8n public API key used only when the Email Categorizer publish falls back to the REST API. Create this in n8n under Settings -> n8n API with workflow create/read/list/update/delete/activate scopes, then store it only in GitHub Secrets.
 
 Optional, depending on how you later replace the deploy placeholder:
 
