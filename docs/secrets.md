@@ -26,6 +26,7 @@ Create these in Hostinger n8n credentials:
 - Plane webhook secret for validating `X-Plane-Signature`. The current builder captures raw webhook bodies but leaves validation marked `pending-secret-credential` until the secret can be read from an n8n credential.
 - Slack bot token or Slack incoming webhook for review and status messages.
 - Microsoft Outlook OAuth2 credential for the email categorizer workflow.
+- Postgres credential named `Email Categorizer Postgres` for the dedicated email classifier audit database.
 - DBHub direct Ollama endpoint/model for Tier 3 email classification. The current endpoint is `http://100.66.221.24:11434` over Tailscale and does not require a LiteLLM credential.
 - Dedicated classifier Postgres credential for email categorizer audit rows.
 
