@@ -213,6 +213,7 @@ return [{
     ollama_request: {
       model: config.local_llm_model,
       stream: false,
+      format: 'json',
       messages: [
         {
           role: 'system',
