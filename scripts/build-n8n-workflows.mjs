@@ -936,6 +936,312 @@ return [{
   };
 }
 
+function buildEmailRuleSuggestionRestWorkflow(name) {
+  const config = {
+    github_owner: 'choicedrum-crypto',
+    github_repo: 'agentic-buildout-starter',
+    correction_table: 'inbox_classification_corrections',
+    audit_table: 'inbox_classifications',
+    workflow_version: name,
+    max_corrections: 25,
+    issue_labels: ['automation', 'codex-ready'],
+  };
+
+  const buildIssueCode = String.raw`
+const config = $('CONFIG').item.json.config || {};
+const rows = $input.all().map((item) => item.json).filter((row) => row.correction_id);
+
+function words(subject) {
+  return String(subject || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .split(/\s+/)
+    .filter((word) => word.length >= 4 && !['automatic', 'reply', 'client', 'file', 'request'].includes(word))
+    .slice(0, 6);
+}
+
+if (!rows.length) {
+  return [{ json: { config, has_suggestions: false, correction_ids: [], status: 'no_new_corrections' } }];
+}
+
+const groups = new Map();
+for (const row of rows) {
+  const key = [
+    row.sender_domain || 'unknown-domain',
+    row.predicted_category_label || row.predicted_quadrant || 'unknown-prediction',
+    row.observed_category_label || 'unknown-observed',
+  ].join('|');
+  const current = groups.get(key) || {
+    sender_domain: row.sender_domain || '',
+    predicted_category_label: row.predicted_category_label || '',
+    observed_category_label: row.observed_category_label || '',
+    count: 0,
+    subjects: [],
+    keywords: new Map(),
+  };
+  current.count += 1;
+  if (row.subject) current.subjects.push(String(row.subject).slice(0, 160));
+  for (const word of words(row.subject)) {
+    current.keywords.set(word, (current.keywords.get(word) || 0) + 1);
+  }
+  groups.set(key, current);
+}
+
+const suggestions = [...groups.values()]
+  .sort((a, b) => b.count - a.count)
+  .map((group) => {
+    const keywords = [...group.keywords.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([word]) => word);
+    return { ...group, keywords };
+  });
+
+const correctionIds = rows.map((row) => Number(row.correction_id)).filter(Number.isFinite);
+const lines = [
+  '## Goal',
+  'Update the Email Categorizer classifier rules using manual Outlook category corrections captured by the n8n feedback loop.',
+  '',
+  '## Suggested Rule Changes',
+  ...suggestions.flatMap((item, index) => [
+    '',
+    '### Suggestion ' + (index + 1),
+    '- Sender domain: ' + (item.sender_domain || 'mixed/unknown'),
+    '- Current prediction: ' + (item.predicted_category_label || 'unknown'),
+    '- Manual category: ' + (item.observed_category_label || 'unknown'),
+    '- Corrections observed: ' + item.count,
+    '- Subject keywords: ' + (item.keywords.length ? item.keywords.join(', ') : 'none'),
+    '- Example subjects:',
+    ...item.subjects.slice(0, 5).map((subject) => '  - ' + subject),
+  ]),
+  '',
+  '## Acceptance Criteria',
+  '- Implement a conservative classifier rule update in scripts/build-n8n-workflows.mjs only.',
+  '- Keep the workflow dry-run first; do not enable Outlook PATCH/category writes.',
+  '- Keep DBHub Ollama as Tier 3 fallback for ambiguous messages.',
+  '- Add or update focused validation for the rule behavior if practical.',
+  '- Open a PR against main through the standard Codex PR flow.',
+  '',
+  '## Safety',
+  '- Do not include secrets.',
+  '- Do not read email bodies or attachments.',
+  '- Do not deploy directly from Codex.',
+  '',
+  '## Automation Metadata',
+  'source_workflow: Email Categorizer Rule Suggestion',
+  'correction_ids: ' + correctionIds.join(','),
+  'workflow_version: ' + config.workflow_version,
+];
+
+return [{
+  json: {
+    config,
+    has_suggestions: true,
+    correction_ids: correctionIds,
+    issue_title: 'Email Categorizer suggested rule update - ' + new Date().toISOString().slice(0, 10),
+    issue_body: lines.join('\n'),
+  },
+}];
+`;
+
+  const prepareUpdateCode = String.raw`
+const source = $('Build Rule Suggestion Issue').item.json;
+const issue = $('Create Rule Suggestion Issue').item.json;
+const ids = (source.correction_ids || []).map(Number).filter(Number.isFinite);
+if (!ids.length) {
+  return [{ json: { query: "select 0::int as updated_rows" } }];
+}
+const issueUrl = issue.html_url || '';
+const issueNumber = issue.number || '';
+const notes = "Suggested rule issue #" + issueNumber + ": " + issueUrl;
+return [{
+  json: {
+    query:
+      "update inbox_classification_corrections set rule_suggestion_status = 'proposed', notes = " +
+      "'" + notes.replace(/'/g, "''") + "' where id in (" + ids.join(',') + ") and rule_suggestion_status = 'new' returning id",
+    issue_url: issueUrl,
+    issue_number: issueNumber,
+  },
+}];
+`;
+
+  return {
+    name,
+    nodes: [
+      {
+        parameters: {},
+        id: 'manual-trigger',
+        name: 'Manual Trigger',
+        type: 'n8n-nodes-base.manualTrigger',
+        typeVersion: 1,
+        position: [0, 0],
+      },
+      {
+        parameters: {
+          rule: { interval: [{ field: 'cronExpression', expression: '0 8 * * 1' }] },
+        },
+        id: 'weekly-schedule',
+        name: 'Weekly Schedule',
+        type: 'n8n-nodes-base.scheduleTrigger',
+        typeVersion: 1.2,
+        position: [0, 220],
+      },
+      {
+        parameters: {
+          mode: 'manual',
+          includeOtherFields: true,
+          assignments: {
+            assignments: [{ id: 'config-object', name: 'config', type: 'object', value: config }],
+          },
+        },
+        id: 'config',
+        name: 'CONFIG',
+        type: 'n8n-nodes-base.set',
+        typeVersion: 3.4,
+        position: [280, 120],
+      },
+      {
+        parameters: {
+          resource: 'database',
+          operation: 'executeQuery',
+          query:
+            "select c.id as correction_id, c.classification_id, c.message_id, c.predicted_quadrant, c.predicted_category_label, c.observed_category_label, c.detected_at, i.subject, i.sender, i.sender_domain, i.importance, i.has_attachments from inbox_classification_corrections c left join inbox_classifications i on i.id = c.classification_id where c.rule_suggestion_status = 'new' order by c.detected_at asc limit 25",
+          options: { queryBatching: 'independently' },
+        },
+        credentials: {
+          postgres: {
+            id: 'ksnKn12JiFB34IUU',
+            name: 'Email Categorizer Postgres',
+          },
+        },
+        id: 'load-new-corrections',
+        name: 'Load New Corrections',
+        type: 'n8n-nodes-base.postgres',
+        typeVersion: 2.6,
+        position: [560, 120],
+      },
+      {
+        parameters: {
+          mode: 'runOnceForAllItems',
+          language: 'javaScript',
+          jsCode: buildIssueCode,
+        },
+        id: 'build-rule-suggestion-issue',
+        name: 'Build Rule Suggestion Issue',
+        type: 'n8n-nodes-base.code',
+        typeVersion: 2,
+        position: [840, 120],
+      },
+      {
+        parameters: {
+          conditions: {
+            options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
+            conditions: [
+              {
+                leftValue: '={{ String($json.has_suggestions) }}',
+                operator: { type: 'string', operation: 'equals' },
+                rightValue: 'true',
+              },
+            ],
+            combinator: 'and',
+          },
+        },
+        id: 'has-rule-suggestions',
+        name: 'Has Rule Suggestions?',
+        type: 'n8n-nodes-base.if',
+        typeVersion: 2.3,
+        position: [1120, 120],
+      },
+      {
+        parameters: {
+          method: 'POST',
+          url: '={{ "https://api.github.com/repos/" + $json.config.github_owner + "/" + $json.config.github_repo + "/issues" }}',
+          authentication: 'genericCredentialType',
+          genericAuthType: 'httpHeaderAuth',
+          sendHeaders: true,
+          headerParameters: { parameters: [{ name: 'Accept', value: 'application/vnd.github+json' }, { name: 'Content-Type', value: 'application/json' }] },
+          sendBody: true,
+          contentType: 'json',
+          specifyBody: 'json',
+          jsonBody: '={{ JSON.stringify({ title: $json.issue_title, body: $json.issue_body, labels: $json.config.issue_labels }) }}',
+          options: {},
+        },
+        credentials: { httpHeaderAuth: { name: 'GitHub HTTP Bearer' } },
+        id: 'create-rule-suggestion-issue',
+        name: 'Create Rule Suggestion Issue',
+        type: 'n8n-nodes-base.httpRequest',
+        typeVersion: 4.4,
+        position: [1400, 80],
+      },
+      {
+        parameters: {
+          method: 'POST',
+          url: '={{ "https://api.github.com/repos/" + $("Build Rule Suggestion Issue").item.json.config.github_owner + "/" + $("Build Rule Suggestion Issue").item.json.config.github_repo + "/issues/" + $json.number + "/comments" }}',
+          authentication: 'genericCredentialType',
+          genericAuthType: 'httpHeaderAuth',
+          sendHeaders: true,
+          headerParameters: { parameters: [{ name: 'Accept', value: 'application/vnd.github+json' }, { name: 'Content-Type', value: 'application/json' }] },
+          sendBody: true,
+          contentType: 'json',
+          specifyBody: 'json',
+          jsonBody:
+            '={{ JSON.stringify({ body: "@codex please implement this email categorizer rule suggestion. Use the issue body as the source of truth. Create a feature branch, update the classifier conservatively, run validation, and open a PR against main. Do not deploy directly from Codex." }) }}',
+          options: {},
+        },
+        credentials: { httpHeaderAuth: { name: 'GitHub HTTP Bearer' } },
+        id: 'request-codex-rule-pr',
+        name: 'Request Codex Rule PR',
+        type: 'n8n-nodes-base.httpRequest',
+        typeVersion: 4.4,
+        position: [1680, 80],
+      },
+      {
+        parameters: {
+          mode: 'runOnceForAllItems',
+          language: 'javaScript',
+          jsCode: prepareUpdateCode,
+        },
+        id: 'prepare-correction-status-update',
+        name: 'Prepare Correction Status Update',
+        type: 'n8n-nodes-base.code',
+        typeVersion: 2,
+        position: [1960, 80],
+      },
+      {
+        parameters: {
+          resource: 'database',
+          operation: 'executeQuery',
+          query: '={{ $json.query }}',
+          options: { queryBatching: 'independently' },
+        },
+        credentials: {
+          postgres: {
+            id: 'ksnKn12JiFB34IUU',
+            name: 'Email Categorizer Postgres',
+          },
+        },
+        id: 'mark-corrections-proposed',
+        name: 'Mark Corrections Proposed',
+        type: 'n8n-nodes-base.postgres',
+        typeVersion: 2.6,
+        position: [2240, 80],
+      },
+    ],
+    connections: {
+      'Manual Trigger': { main: [[{ node: 'CONFIG', type: 'main', index: 0 }]] },
+      'Weekly Schedule': { main: [[{ node: 'CONFIG', type: 'main', index: 0 }]] },
+      CONFIG: { main: [[{ node: 'Load New Corrections', type: 'main', index: 0 }]] },
+      'Load New Corrections': { main: [[{ node: 'Build Rule Suggestion Issue', type: 'main', index: 0 }]] },
+      'Build Rule Suggestion Issue': { main: [[{ node: 'Has Rule Suggestions?', type: 'main', index: 0 }]] },
+      'Has Rule Suggestions?': { main: [[{ node: 'Create Rule Suggestion Issue', type: 'main', index: 0 }], []] },
+      'Create Rule Suggestion Issue': { main: [[{ node: 'Request Codex Rule PR', type: 'main', index: 0 }]] },
+      'Request Codex Rule PR': { main: [[{ node: 'Prepare Correction Status Update', type: 'main', index: 0 }]] },
+      'Prepare Correction Status Update': { main: [[{ node: 'Mark Corrections Proposed', type: 'main', index: 0 }]] },
+    },
+    settings: { executionOrder: 'v1', availableInMCP: true },
+  };
+}
+
 async function createEmailWorkflowViaRest(name) {
   const existing = await n8nApi('GET', `/workflows?name=${encodeURIComponent('Email Categorizer')}&limit=100`);
   const previous = (existing.data || []).filter(
@@ -3711,6 +4017,12 @@ let workflows = [
     name: 'Email Categorizer Correction Review',
     description: 'Nightly dry-run companion that records manual Outlook category corrections against Email Categorizer audit rows.',
     restWorkflowBuilder: buildEmailCorrectionReviewRestWorkflow,
+    createAndSwapRest: true,
+  },
+  {
+    name: 'Email Categorizer Rule Suggestion',
+    description: 'Weekly companion that turns new manual correction rows into a GitHub/Codex rule-update request.',
+    restWorkflowBuilder: buildEmailRuleSuggestionRestWorkflow,
     createAndSwapRest: true,
   },
 ];
