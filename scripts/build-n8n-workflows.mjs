@@ -2073,11 +2073,17 @@ for (const item of workflows) {
   if (item.createAndSwap) {
     const exact = await tool('search_workflows', { query: item.name, limit: 20 });
     const matches = getStructuredContent(exact).data || [];
-    const beforeIds = new Set(matches.map((workflowItem) => workflowItem.id).filter(Boolean));
-    const existing =
-      matches.find((workflowItem) => workflowItem.id === item.workflowId) ||
-      matches.find((workflowItem) => workflowItem.name === item.name && workflowItem.active === true) ||
-      matches.find((workflowItem) => workflowItem.name === item.name);
+    const exactMatches = matches.filter((workflowItem) => workflowItem.name === item.name && workflowItem.id);
+
+    for (const workflowItem of exactMatches) {
+      try {
+        await tool('unpublish_workflow', { workflowId: workflowItem.id });
+      } catch (error) {
+        console.warn(`could not unpublish ${item.name} (${workflowItem.id}) before archive: ${error.message}`);
+      }
+      await tool('archive_workflow', { workflowId: workflowItem.id });
+      console.log(`archived previous ${item.name} (${workflowItem.id})`);
+    }
 
     const created = await tool('create_workflow_from_code', {
       code: item.code,
@@ -2090,7 +2096,7 @@ for (const item of workflows) {
       const afterCreate = await tool('search_workflows', { query: item.name, limit: 20 });
       const afterMatches = getStructuredContent(afterCreate).data || [];
       const createdCandidate = afterMatches.find(
-        (workflowItem) => workflowItem.name === item.name && workflowItem.id && !beforeIds.has(workflowItem.id),
+        (workflowItem) => workflowItem.name === item.name && workflowItem.id && !exactMatches.some((previous) => previous.id === workflowItem.id),
       );
       createdWorkflowId = createdCandidate?.id;
     }
@@ -2109,23 +2115,7 @@ for (const item of workflows) {
       }
     }
 
-    if (existing?.id) {
-      await tool('unpublish_workflow', { workflowId: existing.id });
-    }
-
-    try {
-      await tool('publish_workflow', { workflowId: createdWorkflowId });
-    } catch (error) {
-      if (existing?.id) {
-        await tool('publish_workflow', { workflowId: existing.id });
-      }
-      throw error;
-    }
-
-    if (existing?.id) {
-      await tool('archive_workflow', { workflowId: existing.id });
-      console.log(`archived previous ${item.name} (${existing.id})`);
-    }
+    await tool('publish_workflow', { workflowId: createdWorkflowId });
 
     console.log(`created-and-swapped ${item.name} (${createdWorkflowId})`);
     continue;
