@@ -32,6 +32,7 @@ OpenClaw can remain local for separate workflows, but it is not required for thi
 
 - Website checker: scheduled n8n workflow for checking `http://www.tciallc.com/`. See `docs/website-checker.md`.
 - Email categorizer: dry-run-first n8n workflow spec for Outlook Eisenhower classification. See `docs/email-categorizer.md`.
+- DBhub scoring audit log: Postgres migration and verification notes. See `docs/scoring-log.md`.
 
 ## First Setup
 
