@@ -7,18 +7,19 @@ This repo is a starter kit for a GitHub-first automation workflow.
 Plane task moved to Ready
 -> Hostinger n8n receives a Plane webhook
 -> n8n creates a GitHub issue with a Codex-ready body
+-> n8n comments @codex on the issue to request a build
 -> Codex builds on a feature branch and opens a PR
 -> GitHub Actions validates the PR
--> Slack receives a review message with the GitHub PR merge link
--> A human merges the PR
+-> Slack receives one approval message with Approve / Request Changes / Block actions
+-> Approval merges the PR through GitHub branch protection
 -> GitHub Actions deploys from `main`
--> Slack and Plane receive final status
+-> Plane moves to Done and Slack receives one completion message
 
 ## Core Principle
 
-Codex builds. GitHub gates. You approve. GitHub Actions deploys. n8n orchestrates cloud events only.
+Codex builds. GitHub gates and deploys. You approve from Slack. n8n orchestrates cloud events only.
 
-OpenClaw can remain local for separate workflows, but it is not required for this core flow.
+OpenClaw, Hermes, and local LLM services are intentionally outside the critical build path.
 
 ## Repository Structure
 
@@ -32,6 +33,7 @@ OpenClaw can remain local for separate workflows, but it is not required for thi
 
 - Website checker: scheduled n8n workflow for checking `http://www.tciallc.com/`. See `docs/website-checker.md`.
 - Email categorizer: dry-run-first n8n workflow spec for Outlook Eisenhower classification. See `docs/email-categorizer.md`.
+- Agentic workflow plan: durable Plane -> GitHub -> Codex -> Slack approval -> deploy loop. See `docs/agentic-workflow-implementation-plan.md`.
 
 ## First Setup
 

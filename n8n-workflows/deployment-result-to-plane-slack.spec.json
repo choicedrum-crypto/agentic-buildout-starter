@@ -71,6 +71,7 @@
         "head_sha": "workflow_run.head_sha",
         "repository": "repository.full_name",
         "plane_issue_id": "Plane issue ID recovered from merged PR body, issue body, or commit metadata",
+        "plane_project_id": "Plane project ID recovered from merged PR body or linked issue body",
         "github_issue_number": "GitHub source issue number recovered from merged PR body"
       }
     },
@@ -86,6 +87,12 @@
       "type": "Code or HTTP Request",
       "name": "Resolve Plane task from PR or issue metadata",
       "on_error": "Continue with Slack-only notification."
+    },
+    {
+      "id": "resolve_plane_state",
+      "type": "HTTP Request + Code",
+      "name": "Resolve Plane deployment state",
+      "request": "List Plane states for plane_project_id and choose Deploying, Done, Review, or Blocked by name."
     },
     {
       "id": "update_plane_deploying",
@@ -147,6 +154,8 @@
     "The GitHub deploy workflow must publish n8n workflows from the repo builder before a successful result can be treated as Done.",
     "Fail deploys when n8n workflow specs changed without matching builder/import implementation.",
     "If Plane cannot be resolved, still notify Slack with the deployment result and run URL.",
+    "Use plane_project_id from PR or issue metadata for all Plane API calls.",
+    "Resolve state IDs dynamically by state name in the Plane project before updating status.",
     "If Plane update fails, Slack message must include manual repair instructions.",
     "Close the linked GitHub issue only after a successful deploy with both a resolved Plane issue ID and a resolved GitHub issue number.",
     "Do not close linked GitHub issues on failed deploys.",

@@ -1,0 +1,40 @@
+{
+  "name": "Slack Approval to Merge",
+  "version": 1,
+  "runtime": "Hostinger n8n",
+  "purpose": "Receive Slack approval decisions and either merge approved PRs or queue revisions.",
+  "trigger": {
+    "type": "webhook",
+    "source": "Slack",
+    "path": "/webhook/slack-agent-approval",
+    "events": [
+      "interactive_message",
+      "block_action"
+    ]
+  },
+  "actions": [
+    "approve",
+    "request_changes",
+    "block"
+  ],
+  "core_logic": [
+    "Parse the Slack interaction payload and action value.",
+    "Require pr_number for every action.",
+    "On approve, call the GitHub pull request merge endpoint using a dedicated GitHub HTTP bearer credential.",
+    "On request_changes, comment on the PR with a /codex revise request.",
+    "On block, comment on the PR and stop automation.",
+    "Return a compact webhook acknowledgement to Slack."
+  ],
+  "button_value_contract": {
+    "decision": "approve",
+    "pr_number": 123,
+    "plane_issue_id": "uuid",
+    "plane_project_id": "uuid"
+  },
+  "safe_failure_handling": [
+    "Only merge when the PR number is present.",
+    "GitHub branch protection remains the final gate; failed required checks prevent merge.",
+    "Do not send routine Slack messages from this workflow.",
+    "Deployment result workflow owns the completion notification."
+  ]
+}
