@@ -1880,22 +1880,20 @@ const restoreReviewMessage = node({
 });
 
 const slackReview = node({
-  type: 'n8n-nodes-base.httpRequest',
-  version: 4.4,
+  type: 'n8n-nodes-base.slack',
+  version: 2.4,
   config: {
     name: 'Send Slack Approval Message',
-    credentials: { httpHeaderAuth: newCredential('${slackHttpCredential}') },
     parameters: {
-      method: 'POST',
-      url: 'https://slack.com/api/chat.postMessage',
-      authentication: 'genericCredentialType',
-      genericAuthType: 'httpHeaderAuth',
-      sendHeaders: true,
-      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] },
-      sendBody: true,
-      contentType: 'json',
-      specifyBody: 'json',
-      jsonBody: expr('{{ { channel: $("Extract PR Review Context").item.json.config.slack_review_channel, text: $("Extract PR Review Context").item.json.slack_message, blocks: [ { type: "section", text: { type: "mrkdwn", text: "*" + $("Extract PR Review Context").item.json.pr_title + "*\\\\n" + $("Extract PR Review Context").item.json.slack_message } }, { type: "actions", elements: [ { type: "button", text: { type: "plain_text", text: "Approve" }, style: "primary", action_id: "approve", value: JSON.stringify({ decision: "approve", pr_number: $("Extract PR Review Context").item.json.pr_number, plane_issue_id: $("Extract PR Review Context").item.json.plane_issue_id, plane_project_id: $("Extract PR Review Context").item.json.plane_project_id }) }, { type: "button", text: { type: "plain_text", text: "Request Changes" }, action_id: "request_changes", value: JSON.stringify({ decision: "request_changes", pr_number: $("Extract PR Review Context").item.json.pr_number, plane_issue_id: $("Extract PR Review Context").item.json.plane_issue_id, plane_project_id: $("Extract PR Review Context").item.json.plane_project_id }) }, { type: "button", text: { type: "plain_text", text: "Block" }, style: "danger", action_id: "block", value: JSON.stringify({ decision: "block", pr_number: $("Extract PR Review Context").item.json.pr_number, plane_issue_id: $("Extract PR Review Context").item.json.plane_issue_id, plane_project_id: $("Extract PR Review Context").item.json.plane_project_id }) } ] } ] } }}')
+      resource: 'message',
+      operation: 'post',
+      authentication: 'accessToken',
+      select: 'channel',
+      channelId: { __rl: true, mode: 'name', value: '#workflow-builder' },
+      messageType: 'block',
+      text: expr('{{ $("Extract PR Review Context").item.json.slack_message }}'),
+      blocksUi: expr('{{ JSON.stringify([ { type: "section", text: { type: "mrkdwn", text: "*" + $("Extract PR Review Context").item.json.pr_title + "*\\\\n" + $("Extract PR Review Context").item.json.slack_message } }, { type: "actions", elements: [ { type: "button", text: { type: "plain_text", text: "Approve" }, style: "primary", action_id: "approve", value: JSON.stringify({ decision: "approve", pr_number: $("Extract PR Review Context").item.json.pr_number, plane_issue_id: $("Extract PR Review Context").item.json.plane_issue_id, plane_project_id: $("Extract PR Review Context").item.json.plane_project_id }) }, { type: "button", text: { type: "plain_text", text: "Request Changes" }, action_id: "request_changes", value: JSON.stringify({ decision: "request_changes", pr_number: $("Extract PR Review Context").item.json.pr_number, plane_issue_id: $("Extract PR Review Context").item.json.plane_issue_id, plane_project_id: $("Extract PR Review Context").item.json.plane_project_id }) }, { type: "button", text: { type: "plain_text", text: "Block" }, style: "danger", action_id: "block", value: JSON.stringify({ decision: "block", pr_number: $("Extract PR Review Context").item.json.pr_number, plane_issue_id: $("Extract PR Review Context").item.json.plane_issue_id, plane_project_id: $("Extract PR Review Context").item.json.plane_project_id }) } ] } ]) }}'),
+      otherOptions: { includeLinkToWorkflow: false, mrkdwn: true }
     }
   }
 });
