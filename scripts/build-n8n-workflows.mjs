@@ -696,15 +696,26 @@ if (!rows.length) {
   }];
 }
 
+function odataString(value) {
+  return String(value || '').replace(/'/g, "''");
+}
+
 return [{
   json: {
     config,
     audit_rows: rows,
-    requests: rows.map((row, index) => ({
-      id: String(index),
-      method: 'GET',
-      url: '/users/' + encodeURIComponent(config.ms_user_email) + '/messages/' + encodeURIComponent(row.message_id) + '?$select=id,categories',
-    })),
+    requests: rows
+      .map((row, index) => row.internet_message_id ? ({
+        id: String(index),
+        method: 'GET',
+        url:
+          '/users/' +
+          encodeURIComponent(config.ms_user_email) +
+          '/messages?$filter=' +
+          encodeURIComponent("internetMessageId eq '" + odataString(row.internet_message_id) + "'") +
+          '&$select=id,internetMessageId,categories',
+      }) : null)
+      .filter(Boolean),
   },
 }];
 `;
@@ -726,11 +737,12 @@ for (const response of responses) {
   const index = Number(response.id);
   const audit = auditRows[index];
   if (!audit || response.status < 200 || response.status >= 300) continue;
-  const categories = Array.isArray(response.body?.categories) ? response.body.categories : [];
+  const message = Array.isArray(response.body?.value) ? response.body.value[0] : response.body;
+  const categories = Array.isArray(message?.categories) ? message.categories : [];
   const observed = categories.find((label) => categoryLabels.has(label));
   if (!observed || observed === audit.outlook_category_label) continue;
   corrections.push({
-    audit_id: audit.id,
+    classification_id: audit.id,
     message_id: audit.message_id,
     predicted_quadrant: audit.quadrant,
     predicted_category_label: audit.outlook_category_label,
@@ -746,9 +758,9 @@ return corrections.map((row) => ({
   json: {
     query: [
       'insert into inbox_classification_corrections (',
-      'audit_id, message_id, predicted_quadrant, predicted_category_label, observed_category_label, correction_source',
+      'classification_id, message_id, predicted_quadrant, predicted_category_label, observed_category_label, correction_source',
       ') values (',
-      [sql(row.audit_id), sql(row.message_id), sql(row.predicted_quadrant), sql(row.predicted_category_label), sql(row.observed_category_label), sql('outlook_manual_change')].join(', '),
+      [sql(row.classification_id), sql(row.message_id), sql(row.predicted_quadrant), sql(row.predicted_category_label), sql(row.observed_category_label), sql('outlook_manual_change')].join(', '),
       ') on conflict (message_id, observed_category_label) do nothing returning id',
     ].join(' '),
   },
@@ -812,7 +824,7 @@ return [{
           resource: 'database',
           operation: 'executeQuery',
           query:
-            "select distinct on (message_id) id, message_id, quadrant, outlook_category_label, classified_at from inbox_classifications where classified_at >= now() - interval '7 days' order by message_id, classified_at desc limit 20",
+            "select distinct on (message_id) id, message_id, internet_message_id, quadrant, outlook_category_label, classified_at from inbox_classifications where classified_at >= now() - interval '7 days' order by message_id, classified_at desc limit 20",
           options: { queryBatching: 'independently' },
         },
         credentials: {
