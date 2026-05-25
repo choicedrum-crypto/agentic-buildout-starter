@@ -31,6 +31,13 @@ Use this checklist before trusting the automation with real work.
 - Confirm n8n comments on the issue with `@codex` and required PR metadata instructions.
 - Confirm Plane moves to `Building` only after the Codex request comment is created.
 
+## Codex PR Publication Watchdog
+
+- Confirm Codex-dispatched issues that publish a visible PR receive `codex-pr-open`.
+- Confirm stale `codex-in-progress` issues with no matching PR receive `codex-pr-missing` and `blocked`.
+- Confirm the missing-PR path sends exactly one Slack exception message.
+- Confirm blocked issues are ignored on later watchdog runs.
+
 ## GitHub PR to Slack Approval
 
 - Open a draft or test PR linked to a generated issue.
