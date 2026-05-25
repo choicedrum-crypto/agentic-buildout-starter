@@ -246,7 +246,13 @@ let tier3Results = [];
 if (needsTier3Count) {
   try {
     const content = String($json.message?.content || '{}').trim();
-    const parsed = JSON.parse(content);
+    const jsonStart = content.indexOf('{');
+    const jsonEnd = content.lastIndexOf('}');
+    if (jsonStart === -1 || jsonEnd === -1 || jsonEnd < jsonStart) {
+      throw new Error('Ollama response did not include a JSON object');
+    }
+    const jsonText = content.slice(jsonStart, jsonEnd + 1);
+    const parsed = JSON.parse(jsonText);
     tier3Results = Array.isArray(parsed.results) ? parsed.results : [];
   } catch (error) {
     tier3Status = 'failed_local_llm';
