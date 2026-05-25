@@ -157,9 +157,12 @@ function buildEmailCategorizerRestWorkflow(name) {
 const config = $json.config || {};
 const body = $json.body || $json;
 const supplied = Array.isArray(body.messages) ? body.messages : [];
+const outlookMessages = Array.isArray($json.messages) ? $json.messages : [];
 const messages = supplied.length
   ? supplied
-  : [{
+  : outlookMessages.length
+    ? outlookMessages
+    : [{
       id: 'sample-1',
       internetMessageId: '<sample-1@dry-run>',
       subject: 'Urgent customer credit hold escalation',
@@ -210,7 +213,9 @@ const needsTier3 = baseResults.filter((result) => result.confidence < config.tie
 return [{
   json: {
     config,
-    mode: supplied.length ? 'provided_messages' : 'sample',
+    mode: supplied.length ? 'provided_messages' : outlookMessages.length ? 'outlook_metadata_dry_run' : 'sample',
+    fetched_unread_count: Number($json.fetched_unread_count || 0),
+    skipped_already_categorized_count: Number($json.skipped_already_categorized_count || 0),
     base_results: baseResults,
     needs_tier3_count: needsTier3.length,
     ollama_request: {
@@ -238,6 +243,24 @@ return [{
         },
       ],
     },
+  },
+}];
+`;
+
+  const normalizeOutlookCode = String.raw`
+const configInput = $('CONFIG').item.json || {};
+const raw = Array.isArray($json.value) ? $json.value : [];
+const messages = raw
+  .filter((message) => !Array.isArray(message.categories) || message.categories.length === 0)
+  .slice(0, Number(configInput.config?.batch_limit || 25));
+
+return [{
+  json: {
+    ...configInput,
+    mode: 'outlook_metadata_dry_run',
+    fetched_unread_count: raw.length,
+    skipped_already_categorized_count: raw.length - messages.length,
+    messages,
   },
 }];
 `;
@@ -316,6 +339,8 @@ return [{
     mode: prepared.mode,
     dry_run: config.dry_run,
     mailbox: config.ms_user_email,
+    fetched_unread_count: Number(prepared.fetched_unread_count || 0),
+    skipped_already_categorized_count: Number(prepared.skipped_already_categorized_count || 0),
     tier3_provider: config.tier3_provider,
     tier3_status: tier3Status,
     local_llm_base_url: config.local_llm_base_url,
@@ -454,6 +479,60 @@ return [{
       },
       {
         parameters: {
+          conditions: {
+            options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
+            conditions: [
+              {
+                leftValue: '={{ String(Array.isArray($json.body?.messages) || $json.body?.use_outlook !== true) }}',
+                operator: { type: 'string', operation: 'equals' },
+                rightValue: 'true',
+              },
+            ],
+            combinator: 'and',
+          },
+        },
+        id: 'use-provided-or-sample',
+        name: 'Use Provided Or Sample?',
+        type: 'n8n-nodes-base.if',
+        typeVersion: 2.3,
+        position: [560, 120],
+      },
+      {
+        parameters: {
+          method: 'GET',
+          url: '={{ "https://graph.microsoft.com/v1.0/users/" + $json.config.ms_user_email + "/mailFolders/inbox/messages?$top=" + Number($json.config.batch_limit || 25) + "&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime,importance,hasAttachments,categories,isRead&$filter=isRead eq false" }}',
+          authentication: 'predefinedCredentialType',
+          nodeCredentialType: 'microsoftOutlookOAuth2Api',
+          sendHeaders: true,
+          headerParameters: { parameters: [{ name: 'Accept', value: 'application/json' }] },
+          options: {},
+        },
+        credentials: {
+          microsoftOutlookOAuth2Api: {
+            id: 'UPbI07LdV7IQhWzs',
+            name: 'Microsoft Outlook account',
+          },
+        },
+        id: 'get-unread-outlook-metadata',
+        name: 'Get Unread Outlook Metadata',
+        type: 'n8n-nodes-base.httpRequest',
+        typeVersion: 4.4,
+        position: [840, 260],
+      },
+      {
+        parameters: {
+          mode: 'runOnceForAllItems',
+          language: 'javaScript',
+          jsCode: normalizeOutlookCode,
+        },
+        id: 'normalize-outlook-metadata',
+        name: 'Normalize Outlook Metadata',
+        type: 'n8n-nodes-base.code',
+        typeVersion: 2,
+        position: [1120, 260],
+      },
+      {
+        parameters: {
           mode: 'runOnceForAllItems',
           language: 'javaScript',
           jsCode: classifyCode,
@@ -462,7 +541,7 @@ return [{
         name: 'Prepare Dry Run Classification',
         type: 'n8n-nodes-base.code',
         typeVersion: 2,
-        position: [560, 120],
+        position: [1400, 120],
       },
       {
         parameters: {
@@ -478,7 +557,7 @@ return [{
         name: 'Call DBHub Ollama',
         type: 'n8n-nodes-base.httpRequest',
         typeVersion: 4.4,
-        position: [840, 120],
+        position: [1680, 120],
       },
       {
         parameters: {
@@ -490,7 +569,7 @@ return [{
         name: 'Merge DBHub Ollama Result',
         type: 'n8n-nodes-base.code',
         typeVersion: 2,
-        position: [1120, 120],
+        position: [1960, 120],
       },
       ...(enablePostgresAudit
         ? [
@@ -504,7 +583,7 @@ return [{
               name: 'Prepare Audit Insert Rows',
               type: 'n8n-nodes-base.code',
               typeVersion: 2,
-              position: [1400, 120],
+              position: [2240, 120],
             },
             {
               parameters: {
@@ -525,7 +604,7 @@ return [{
               name: 'Insert Audit Rows',
               type: 'n8n-nodes-base.postgres',
               typeVersion: 2.6,
-              position: [1680, 120],
+              position: [2520, 120],
               continueOnFail: true,
             },
             {
@@ -538,7 +617,7 @@ return [{
               name: 'Restore Audit Response',
               type: 'n8n-nodes-base.code',
               typeVersion: 2,
-              position: [1960, 120],
+              position: [2800, 120],
             },
           ]
         : []),
@@ -552,13 +631,21 @@ return [{
         name: 'Return Dry Run Result',
         type: 'n8n-nodes-base.respondToWebhook',
         typeVersion: 1.4,
-        position: [2240, 120],
+        position: [3080, 120],
       },
     ],
     connections: {
       'Manual Test Trigger': { main: [[{ node: 'CONFIG', type: 'main', index: 0 }]] },
       'Email Categorizer Test Webhook': { main: [[{ node: 'CONFIG', type: 'main', index: 0 }]] },
-      CONFIG: { main: [[{ node: 'Prepare Dry Run Classification', type: 'main', index: 0 }]] },
+      CONFIG: { main: [[{ node: 'Use Provided Or Sample?', type: 'main', index: 0 }]] },
+      'Use Provided Or Sample?': {
+        main: [
+          [{ node: 'Prepare Dry Run Classification', type: 'main', index: 0 }],
+          [{ node: 'Get Unread Outlook Metadata', type: 'main', index: 0 }],
+        ],
+      },
+      'Get Unread Outlook Metadata': { main: [[{ node: 'Normalize Outlook Metadata', type: 'main', index: 0 }]] },
+      'Normalize Outlook Metadata': { main: [[{ node: 'Prepare Dry Run Classification', type: 'main', index: 0 }]] },
       'Prepare Dry Run Classification': { main: [[{ node: 'Call DBHub Ollama', type: 'main', index: 0 }]] },
       'Call DBHub Ollama': { main: [[{ node: 'Merge DBHub Ollama Result', type: 'main', index: 0 }]] },
       ...(enablePostgresAudit
