@@ -124,6 +124,16 @@ const stateObject = issue.state || issue.status || body.state || body.status || 
 const stateValue = stateObject.name || issue.state_name || issue.status_name || body.state_name || body.status_name || stateObject || '';
 const stateId = stateObject.id || stateObject.uuid || issue.state_id || issue.state || body.state_id || body.state || '';
 const planeIssueId = issue.id || issue.uuid || issue.issue_id || issue.work_item_id || body.issue_id || body.work_item_id || '';
+const projectObject = issue.project || body.project || {};
+const planeProjectId =
+  issue.project_id ||
+  body.project_id ||
+  projectObject.id ||
+  projectObject.uuid ||
+  (typeof issue.project === 'string' ? issue.project : '') ||
+  (typeof body.project === 'string' ? body.project : '') ||
+  config.plane_project_id ||
+  '';
 const planeIssueKey = issue.identifier || issue.sequence_id || issue.key || body.issue_key || '';
 const title = issue.name || issue.title || body.title || 'Plane task ready for Codex';
 const description = issue.description_html || issue.description_stripped || issue.description || body.description || '';
@@ -159,9 +169,10 @@ const issueBody = [
   '',
   '## Automation Metadata',
   'plane_issue_id: ' + planeIssueId,
+  'plane_project_id: ' + planeProjectId,
   'plane_url: ' + planeUrl
 ].join('\\\\n');
-return { json: { ...$json, config, plane_issue_id: planeIssueId, plane_issue_key: planeIssueKey, plane_title: title, plane_description: description, plane_state: stateValue, plane_state_id: stateId, plane_url: planeUrl, existing_github_issue_url: existing, ready, has_existing_github_issue: Boolean(existing), github_issue_title: '[Plane] ' + title, github_issue_body: issueBody } };
+return { json: { ...$json, config, plane_issue_id: planeIssueId, plane_project_id: planeProjectId, plane_issue_key: planeIssueKey, plane_title: title, plane_description: description, plane_state: stateValue, plane_state_id: stateId, plane_url: planeUrl, existing_github_issue_url: existing, ready, has_existing_github_issue: Boolean(existing), github_issue_title: '[Plane] ' + title, github_issue_body: issueBody } };
 \`
     }
   }
@@ -408,7 +419,7 @@ const commentPlane = node({
     credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
     parameters: {
       method: 'POST',
-      url: expr('{{ $("Normalize Plane Payload").item.json.config.plane_api_base_url + "/api/v1/workspaces/" + $("Normalize Plane Payload").item.json.config.plane_workspace_slug + "/projects/" + $("Normalize Plane Payload").item.json.config.plane_project_id + "/work-items/" + $("Normalize Plane Payload").item.json.plane_issue_id + "/comments/" }}'),
+      url: expr('{{ $("Normalize Plane Payload").item.json.config.plane_api_base_url + "/api/v1/workspaces/" + $("Normalize Plane Payload").item.json.config.plane_workspace_slug + "/projects/" + $("Normalize Plane Payload").item.json.plane_project_id + "/work-items/" + $("Normalize Plane Payload").item.json.plane_issue_id + "/comments/" }}'),
       authentication: 'genericCredentialType',
       genericAuthType: 'httpHeaderAuth',
       sendHeaders: true,
@@ -498,6 +509,7 @@ const metadataText = [pr.body || '', pr.title || '', JSON.stringify(body)].join(
 const issueUrl = metadataText.match(/https:\\\\/\\\\/github\\\\.com\\\\/[^\\\\s)]+\\\\/issues\\\\/\\\\d+/)?.[0] || '';
 const planeUrl = metadataText.match(/https?:\\\\/\\\\/[^\\\\s)"]*plane[^\\\\s)"]*/i)?.[0] || '';
 const planeIssueId = metadataText.match(/plane_issue_id:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] || '';
+const planeProjectId = metadataText.match(/plane_project_id:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] || config.plane_project_id || '';
 const reviewable = ['opened', 'synchronize', 'reopened', 'ready_for_review'].includes(action);
 const message = [
   'Build ready for review',
@@ -509,7 +521,7 @@ const message = [
   'Risks: See PR body',
   'Next step: review and merge in GitHub.'
 ].join('\\\\n');
-return { json: { ...$json, config, action, reviewable, pr_title: pr.title, pr_url: pr.html_url, pr_merge_link: pr.html_url, issue_url: issueUrl, plane_url: planeUrl, plane_issue_id: planeIssueId, plane_state_id: config.plane_review_state_id, slack_message: message } };
+return { json: { ...$json, config, action, reviewable, pr_title: pr.title, pr_url: pr.html_url, pr_merge_link: pr.html_url, issue_url: issueUrl, plane_url: planeUrl, plane_issue_id: planeIssueId, plane_project_id: planeProjectId, plane_state_id: config.plane_review_state_id, slack_message: message } };
 \`
     }
   }
@@ -545,7 +557,7 @@ const updatePlaneReview = node({
     credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
     parameters: {
       method: 'PATCH',
-      url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.config.plane_project_id + "/work-items/" + $json.plane_issue_id + "/" }}'),
+      url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.plane_project_id + "/work-items/" + $json.plane_issue_id + "/" }}'),
       authentication: 'genericCredentialType',
       genericAuthType: 'httpHeaderAuth',
       sendHeaders: true,
@@ -568,7 +580,7 @@ const commentPlaneReview = node({
     credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
     parameters: {
       method: 'POST',
-      url: expr('{{ $("Extract PR Review Context").item.json.config.plane_api_base_url + "/api/v1/workspaces/" + $("Extract PR Review Context").item.json.config.plane_workspace_slug + "/projects/" + $("Extract PR Review Context").item.json.config.plane_project_id + "/work-items/" + $("Extract PR Review Context").item.json.plane_issue_id + "/comments/" }}'),
+      url: expr('{{ $("Extract PR Review Context").item.json.config.plane_api_base_url + "/api/v1/workspaces/" + $("Extract PR Review Context").item.json.config.plane_workspace_slug + "/projects/" + $("Extract PR Review Context").item.json.plane_project_id + "/work-items/" + $("Extract PR Review Context").item.json.plane_issue_id + "/comments/" }}'),
       authentication: 'genericCredentialType',
       genericAuthType: 'httpHeaderAuth',
       sendHeaders: true,
