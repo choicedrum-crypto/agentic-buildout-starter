@@ -10,7 +10,7 @@
   },
   "credentials": [
     "GitHub API credential in n8n",
-    "Slack Bot HTTP Bearer credential in n8n"
+    "Slack account credential in n8n"
   ],
   "eligibility": [
     "Open GitHub issue has labels plane, codex-ready, automation, and codex-in-progress.",
