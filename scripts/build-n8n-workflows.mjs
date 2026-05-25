@@ -2992,7 +2992,7 @@ const buildSearch = node({
       jsCode: \`
 const config = $json.config || {};
 const body = $json.body || {};
-const staleMinutes = Number(body.stale_minutes || $json.stale_minutes || config.stale_minutes || 60);
+const staleMinutes = Number(body.stale_minutes ?? $json.stale_minutes ?? config.stale_minutes ?? 60);
 const staleBeforeIso = new Date(Date.now() - staleMinutes * 60 * 1000).toISOString();
 return { json: { ...$json, config: { ...config, stale_minutes: staleMinutes }, stale_before_iso: staleBeforeIso } };
 \`
@@ -3183,24 +3183,19 @@ const restoreBlockedContext = node({
 });
 
 const slackBlocked = node({
-  type: 'n8n-nodes-base.httpRequest',
-  version: 4.4,
+  type: 'n8n-nodes-base.slack',
+  version: 2.4,
   config: {
     name: 'Send Slack Missing PR Alert',
-    alwaysOutputData: true,
-    continueOnFail: true,
-    credentials: { httpHeaderAuth: newCredential('${slackHttpCredential}') },
     parameters: {
-      method: 'POST',
-      url: 'https://slack.com/api/chat.postMessage',
-      authentication: 'genericCredentialType',
-      genericAuthType: 'httpHeaderAuth',
-      sendHeaders: true,
-      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] },
-      sendBody: true,
-      contentType: 'json',
-      specifyBody: 'json',
-      jsonBody: expr('{{ { channel: $json.slack_alert_channel || "#workflow-builder", text: $json.slack_message } }}')
+      resource: 'message',
+      operation: 'post',
+      authentication: 'accessToken',
+      select: 'channel',
+      channelId: { __rl: true, mode: 'name', value: '#workflow-builder' },
+      messageType: 'text',
+      text: expr('{{ $json.slack_message }}'),
+      otherOptions: { includeLinkToWorkflow: false, mrkdwn: true }
     }
   }
 });
