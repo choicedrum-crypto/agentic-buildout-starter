@@ -27,6 +27,8 @@ for (const key of ['N8N_BASE_URL', 'N8N_API_KEY']) {
 
 const endpoint = env.N8N_BASE_URL.replace(/\/$/, '');
 let id = 1;
+const maxMcpAttempts = Number(env.N8N_MCP_MAX_ATTEMPTS || 5);
+const mcpRetryBaseMs = Number(env.N8N_MCP_RETRY_BASE_MS || 2500);
 
 function parseMcpResponse(text) {
   const match = text.match(/^data: (.*)$/m);
@@ -34,20 +36,35 @@ function parseMcpResponse(text) {
 }
 
 async function mcp(method, params = {}) {
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${env.N8N_API_KEY}`,
-      accept: 'application/json, text/event-stream',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({ jsonrpc: '2.0', id: id++, method, params }),
-  });
-  const payload = parseMcpResponse(await response.text());
-  if (payload.error) {
-    throw new Error(JSON.stringify(payload.error));
+  const requestId = id++;
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxMcpAttempts; attempt += 1) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${env.N8N_API_KEY}`,
+          accept: 'application/json, text/event-stream',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: requestId, method, params }),
+      });
+      const payload = parseMcpResponse(await response.text());
+      if (payload.error) {
+        throw new Error(JSON.stringify(payload.error));
+      }
+      return payload.result;
+    } catch (error) {
+      lastError = error;
+      if (attempt === maxMcpAttempts) break;
+      const waitMs = mcpRetryBaseMs * attempt;
+      console.warn(`n8n MCP ${method} failed on attempt ${attempt}/${maxMcpAttempts}; retrying in ${waitMs}ms: ${error.message}`);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
   }
-  return payload.result;
+
+  throw lastError;
 }
 
 async function tool(name, args = {}) {
