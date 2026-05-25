@@ -2071,11 +2071,21 @@ for (const item of workflows) {
   }
 
   if (item.createAndSwap) {
+    const publishToken = (env.GITHUB_SHA || new Date().toISOString()).replace(/[^a-zA-Z0-9]/g, '').slice(0, 12);
+    const publishedName = `${item.name} - Published ${publishToken}`;
+    const publishedCode = item.code.replace(
+      `workflow('email-categorizer', 'Email Categorizer')`,
+      `workflow('email-categorizer', '${publishedName}')`,
+    );
     const exact = await tool('search_workflows', { query: item.name, limit: 20 });
     const matches = getStructuredContent(exact).data || [];
-    const exactMatches = matches.filter((workflowItem) => workflowItem.name === item.name && workflowItem.id);
+    const previousMatches = matches.filter(
+      (workflowItem) =>
+        workflowItem.id &&
+        (workflowItem.name === item.name || workflowItem.name.startsWith(`${item.name} - Published `)),
+    );
 
-    for (const workflowItem of exactMatches) {
+    for (const workflowItem of previousMatches) {
       try {
         await tool('unpublish_workflow', { workflowId: workflowItem.id });
       } catch (error) {
@@ -2086,8 +2096,8 @@ for (const item of workflows) {
     }
 
     const created = await tool('create_workflow_from_code', {
-      code: item.code,
-      name: item.name,
+      code: publishedCode,
+      name: publishedName,
       description: item.description,
     });
     const createdContent = getStructuredContent(created);
@@ -2096,7 +2106,7 @@ for (const item of workflows) {
       const afterCreate = await tool('search_workflows', { query: item.name, limit: 20 });
       const afterMatches = getStructuredContent(afterCreate).data || [];
       const createdCandidate = afterMatches.find(
-        (workflowItem) => workflowItem.name === item.name && workflowItem.id && !exactMatches.some((previous) => previous.id === workflowItem.id),
+        (workflowItem) => workflowItem.name === publishedName && workflowItem.id,
       );
       createdWorkflowId = createdCandidate?.id;
     }
@@ -2117,7 +2127,7 @@ for (const item of workflows) {
 
     await tool('publish_workflow', { workflowId: createdWorkflowId });
 
-    console.log(`created-and-swapped ${item.name} (${createdWorkflowId})`);
+    console.log(`created-and-swapped ${item.name} as ${publishedName} (${createdWorkflowId})`);
     continue;
   }
 
