@@ -337,6 +337,23 @@ if (!rows.length) {
   return [{ json: { ...response, audit_status: 'skipped_no_audit_rows', audit_insert_count: 0 } }];
 }
 
+function sql(value) {
+  if (value === null || value === undefined || value === '') return 'NULL';
+  return "'" + String(value).replace(/'/g, "''") + "'";
+}
+
+function sqlJson(value) {
+  return sql(JSON.stringify(value || [])) + '::jsonb';
+}
+
+function sqlBool(value) {
+  return value ? 'true' : 'false';
+}
+
+function sqlNumber(value) {
+  return Number.isFinite(Number(value)) ? String(Number(value)) : 'NULL';
+}
+
 return rows.map((row) => ({
   json: {
     query: \`
@@ -362,51 +379,29 @@ return rows.map((row) => ({
         workflow_version,
         error_text
       ) values (
-        $1::timestamptz,
-        $2,
-        $3,
-        $4,
-        $5,
-        $6,
-        $7::timestamptz,
-        $8,
-        $9,
-        $10::jsonb,
-        $11,
-        $12,
-        $13,
-        $14,
-        $15,
-        $16,
-        $17,
-        $18,
-        $19,
-        $20
+        \${sql(row.classified_at)}::timestamptz,
+        \${sql(row.message_id)},
+        \${sql(row.internet_message_id)},
+        \${sql(row.subject)},
+        \${sql(row.sender)},
+        \${sql(row.sender_domain)},
+        \${sql(row.received_at)}::timestamptz,
+        \${sql(row.importance)},
+        \${sqlBool(row.has_attachments)},
+        \${sqlJson(row.original_categories)},
+        \${sql(row.quadrant)},
+        \${sql(row.outlook_category_label)},
+        \${sqlNumber(row.tier_fired)},
+        \${sqlNumber(row.confidence)},
+        \${sql(row.rule_matched)},
+        \${sql(row.llm_rationale)},
+        \${sqlBool(row.dry_run)},
+        \${sqlBool(row.applied_ok)},
+        \${sql(row.workflow_version)},
+        \${sql(row.error_text)}
       )
       returning id
     \`,
-    queryParams: [
-      row.classified_at,
-      row.message_id,
-      row.internet_message_id,
-      row.subject,
-      row.sender,
-      row.sender_domain,
-      row.received_at,
-      row.importance,
-      row.has_attachments,
-      JSON.stringify(row.original_categories || []),
-      row.quadrant,
-      row.outlook_category_label,
-      row.tier_fired,
-      row.confidence,
-      row.rule_matched,
-      row.llm_rationale,
-      row.dry_run,
-      row.applied_ok,
-      row.workflow_version,
-      row.error_text,
-    ],
   },
 }));
 `;
@@ -523,10 +518,11 @@ return [{
             },
             {
               parameters: {
+                resource: 'database',
                 operation: 'executeQuery',
                 query: '={{ $json.query }}',
                 options: {
-                  queryReplacement: '={{ $json.queryParams }}',
+                  queryBatching: 'independently',
                 },
               },
               credentials: {
