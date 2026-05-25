@@ -6,7 +6,7 @@ Move from an idea in Plane to a deployed solution with the fewest reliable human
 
 1. A human marks a Plane work item `Ready`.
 2. n8n creates or reuses a GitHub issue.
-3. n8n dispatches Codex to build the issue.
+3. n8n requests Codex by commenting `@codex` on the GitHub issue.
 4. Codex opens or updates a PR.
 5. Slack sends one approval notification with buttons.
 6. A human approves, requests changes, or blocks from Slack.
@@ -94,7 +94,7 @@ The `plane_issue_id` and `plane_project_id` fields are the durable keys for ever
 flowchart TD
   A["Plane item marked Ready"] --> B["n8n: Plane Ready to GitHub Issue"]
   B --> C["GitHub issue with Plane metadata"]
-  C --> D["n8n: GitHub Issue to Codex Dispatch"]
+  C --> D["n8n: GitHub Issue to Codex Request"]
   D --> E["Codex builds branch"]
   E --> F["GitHub PR opened"]
   F --> G["GitHub PR checks"]
@@ -126,7 +126,7 @@ Responsibilities:
 - Comment back to Plane with GitHub issue link.
 - Do not send routine Slack queue notifications.
 
-### GitHub Issue to Codex Dispatch
+### GitHub Issue to Codex Request
 
 Status: new.
 
@@ -146,30 +146,25 @@ Eligibility:
 Responsibilities:
 
 - Claim issue with `codex-in-progress`.
-- Dispatch Codex with repo, GitHub issue, Plane issue, and Plane project metadata.
-- Move Plane to `Building` only after dispatch succeeds.
+- Comment on the GitHub issue with an `@codex` implementation request.
+- Move Plane to `Building` only after the Codex request comment is created.
 - Ignore duplicate or already-claimed webhook deliveries.
 - Send no routine Slack notification.
 
-Codex dispatch payload:
+Codex request comment:
 
-```json
-{
-  "source": "n8n",
-  "event": "codex_issue_ready",
-  "repo": "choicedrum-crypto/agentic-buildout-starter",
-  "github_issue_number": 123,
-  "github_issue_url": "https://github.com/choicedrum-crypto/agentic-buildout-starter/issues/123",
-  "plane_issue_id": "uuid",
-  "plane_project_id": "uuid",
-  "plane_url": "https://app.plane.so/...",
-  "expected_pr_metadata": [
-    "plane_issue_id",
-    "plane_project_id",
-    "github_issue_number",
-    "plane_url"
-  ]
-}
+```text
+@codex please implement this issue.
+
+Use the issue body as the source of truth. Create a feature branch, make the code changes, run appropriate validation, and open a PR against main.
+
+Include this metadata in the PR body:
+plane_issue_id:
+plane_project_id:
+github_issue_number:
+plane_url:
+
+Do not deploy from Codex.
 ```
 
 ### GitHub PR to Slack Approval
@@ -287,7 +282,7 @@ The system is ready when:
 
 - A Plane task marked `Ready` creates exactly one GitHub issue.
 - The GitHub issue is claimed exactly once.
-- Codex starts without manual prompting.
+- Codex starts from the GitHub `@codex` issue comment without manual prompting.
 - Codex opens a PR with required metadata.
 - Slack sends one approval notification.
 - Slack approval triggers merge after checks pass.
@@ -302,7 +297,7 @@ The system is ready when:
 Recommended immediate order:
 
 1. Patch Deployment Result workflow dynamic project and state resolution.
-2. Build GitHub Issue to Codex Dispatch.
+2. Build GitHub Issue to Codex Request.
 3. Convert PR review Slack message into approval buttons.
 4. Add Slack Approval to Merge workflow.
 5. Test one small Plane item end to end.

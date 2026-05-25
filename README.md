@@ -7,7 +7,7 @@ This repo is a starter kit for a GitHub-first automation workflow.
 Plane task moved to Ready
 -> Hostinger n8n receives a Plane webhook
 -> n8n creates a GitHub issue with a Codex-ready body
--> n8n dispatches Codex to build the issue
+-> n8n comments @codex on the issue to request a build
 -> Codex builds on a feature branch and opens a PR
 -> GitHub Actions validates the PR
 -> Slack receives one approval message with Approve / Request Changes / Block actions

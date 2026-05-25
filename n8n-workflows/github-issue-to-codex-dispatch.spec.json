@@ -2,7 +2,7 @@
   "name": "GitHub Issue to Codex Dispatch",
   "version": 1,
   "runtime": "Hostinger n8n",
-  "purpose": "Claim Codex-ready GitHub issues created from Plane and dispatch them to the Codex build entrypoint.",
+  "purpose": "Claim Codex-ready GitHub issues created from Plane and request Codex by commenting @codex on the GitHub issue.",
   "trigger": {
     "type": "webhook",
     "source": "GitHub",
@@ -27,32 +27,18 @@
   "core_logic": [
     "Parse Plane metadata from the GitHub issue body.",
     "Claim the GitHub issue with codex-in-progress.",
-    "Dispatch the configured Codex build endpoint with repo, GitHub issue, Plane issue, and Plane project metadata.",
+    "Comment on the issue with an @codex implementation request and required PR metadata.",
     "Resolve the Plane Building state by name within the issue project.",
-    "Move the Plane item to Building only after Codex dispatch succeeds.",
+    "Move the Plane item to Building only after the Codex request comment is created.",
     "Ignore duplicate or already-claimed webhook deliveries."
   ],
-  "codex_payload": {
-    "source": "n8n",
-    "event": "codex_issue_ready",
-    "repo": "owner/repo",
-    "github_issue_number": 123,
-    "github_issue_url": "https://github.com/owner/repo/issues/123",
-    "plane_issue_id": "uuid",
-    "plane_project_id": "uuid",
-    "plane_url": "https://app.plane.so/...",
-    "expected_pr_metadata": [
-      "plane_issue_id",
-      "plane_project_id",
-      "github_issue_number",
-      "plane_url"
-    ]
-  },
+  "codex_comment": "@codex please implement this issue.\n\nUse the issue body as the source of truth. Create a feature branch, make the code changes, run appropriate validation, and open a PR against main.\n\nInclude plane_issue_id, plane_project_id, github_issue_number, and plane_url in the PR body.\n\nDo not deploy from Codex.",
   "safe_failure_handling": [
     "Do not dispatch if required metadata is missing.",
     "Do not dispatch if the issue is already claimed or has an open PR label.",
     "Use GitHub labels as visible claim state.",
     "Use Plane project ID from issue metadata, not a hardcoded project ID.",
-    "Routine dispatch should not notify Slack."
+    "Routine dispatch should not notify Slack.",
+    "Do not use the OpenAI API for this workflow; the Codex request travels through GitHub using the existing GitHub credential."
   ]
 }

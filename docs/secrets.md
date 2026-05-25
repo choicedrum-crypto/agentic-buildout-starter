@@ -57,7 +57,7 @@ Do not use enterprise/global n8n variables for this starter. Each workflow must 
 - `public_n8n_base_url`, default `https://n8n.tradecredit.agency`
 - `plane_ready_lock_table_id`, n8n Data Table ID for `plane_ready_issue_locks`
 - `plane_ready_lock_table_name`, default `plane_ready_issue_locks`
-- `codex_dispatch_url`, endpoint n8n calls to start a Codex build from a ready GitHub issue
+- `codex_mention`, default `@codex`, used in the GitHub issue comment that requests Codex to build the issue
 - `plane_building_state_name`, default `Building`
 - `plane_approved_state_name`, default `Approved`
 - `plane_changes_state_name`, default `Changes Requested`

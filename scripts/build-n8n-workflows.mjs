@@ -2575,7 +2575,7 @@ const config = node({
       includeOtherFields: true,
       assignments: {
         assignments: [
-          { id: 'config-object', name: 'config', type: 'object', value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", plane_api_base_url: "https://api.plane.so", plane_workspace_slug: "tcia", plane_building_state_name: "Building", plane_building_state_id: "57e8338f-7181-44f6-9f5e-806a425ec6b2", codex_dispatch_url: "https://codex.example.invalid/webhook/github-issue-ready", public_n8n_base_url: "https://n8n.tradecredit.agency" } }}') }
+          { id: 'config-object', name: 'config', type: 'object', value: expr('{{ { github_owner: "choicedrum-crypto", github_repo: "agentic-buildout-starter", plane_api_base_url: "https://api.plane.so", plane_workspace_slug: "tcia", plane_building_state_name: "Building", plane_building_state_id: "57e8338f-7181-44f6-9f5e-806a425ec6b2", codex_mention: "@codex", public_n8n_base_url: "https://n8n.tradecredit.agency" } }}') }
         ]
       }
     }
@@ -2618,17 +2618,19 @@ return {
     plane_issue_id: planeIssueId,
     plane_project_id: planeProjectId,
     plane_url: planeUrl,
-    dispatch_payload: {
-      source: 'n8n',
-      event: 'codex_issue_ready',
-      repo: config.github_owner + '/' + config.github_repo,
-      github_issue_number: Number(issueNumber || 0),
-      github_issue_url: issue.html_url || '',
-      plane_issue_id: planeIssueId,
-      plane_project_id: planeProjectId,
-      plane_url: planeUrl,
-      expected_pr_metadata: ['plane_issue_id', 'plane_project_id', 'github_issue_number', 'plane_url']
-    }
+    codex_comment: [
+      (config.codex_mention || '@codex') + ' please implement this issue.',
+      '',
+      'Use the issue body as the source of truth. Create a feature branch, make the code changes, run appropriate validation, and open a PR against main.',
+      '',
+      'Include this metadata in the PR body:',
+      'plane_issue_id: ' + planeIssueId,
+      'plane_project_id: ' + planeProjectId,
+      'github_issue_number: ' + issueNumber,
+      'plane_url: ' + planeUrl,
+      '',
+      'Do not deploy from Codex.'
+    ].join('\\\\n')
   }
 };
 \`
@@ -2664,20 +2666,20 @@ const claimIssue = node({
   }
 });
 
-const dispatchCodex = node({
-  type: 'n8n-nodes-base.httpRequest',
-  version: 4.4,
+const requestCodex = node({
+  type: 'n8n-nodes-base.github',
+  version: 1.1,
   config: {
-    name: 'Dispatch Codex Build',
+    name: 'Request Codex Build',
+    credentials: { githubApi: newCredential('${githubCredential}') },
     parameters: {
-      method: 'POST',
-      url: expr('{{ $("Extract Dispatch Context").item.json.config.codex_dispatch_url }}'),
-      sendHeaders: true,
-      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] },
-      sendBody: true,
-      contentType: 'json',
-      specifyBody: 'json',
-      jsonBody: expr('{{ $("Extract Dispatch Context").item.json.dispatch_payload }}')
+      resource: 'issue',
+      operation: 'createComment',
+      authentication: 'accessToken',
+      owner: { __rl: true, mode: 'name', value: 'choicedrum-crypto' },
+      repository: { __rl: true, mode: 'name', value: 'agentic-buildout-starter' },
+      issueNumber: expr('{{ Number($("Extract Dispatch Context").item.json.issue_number) }}'),
+      body: expr('{{ $("Extract Dispatch Context").item.json.codex_comment }}')
     }
   }
 });
@@ -2740,7 +2742,7 @@ const movePlaneBuilding = node({
   }
 });
 
-const respondDispatched = node({ type: 'n8n-nodes-base.respondToWebhook', version: 1.5, config: { name: 'Respond Dispatched', parameters: { respondWith: 'json', responseBody: expr('{{ { ok: true, action: "codex_dispatched", issue_number: $("Extract Dispatch Context").item.json.issue_number, plane_issue_id: $("Extract Dispatch Context").item.json.plane_issue_id } }}'), options: { responseCode: 200 } } } });
+const respondDispatched = node({ type: 'n8n-nodes-base.respondToWebhook', version: 1.5, config: { name: 'Respond Dispatched', parameters: { respondWith: 'json', responseBody: expr('{{ { ok: true, action: "codex_requested", issue_number: $("Extract Dispatch Context").item.json.issue_number, plane_issue_id: $("Extract Dispatch Context").item.json.plane_issue_id } }}'), options: { responseCode: 200 } } } });
 const respondIgnored = node({ type: 'n8n-nodes-base.respondToWebhook', version: 1.5, config: { name: 'Respond Ignored', parameters: { respondWith: 'json', responseBody: expr('{{ { ok: true, action: "ignored_issue_not_eligible", github_action: $json.action, issue_number: $json.issue_number || "" } }}'), options: { responseCode: 200 } } } });
 
 export default workflow('github-issue-codex-dispatch', 'GitHub Issue to Codex Dispatch')
@@ -2748,7 +2750,7 @@ export default workflow('github-issue-codex-dispatch', 'GitHub Issue to Codex Di
   .to(config)
   .to(extract)
   .to(shouldDispatch
-    .onTrue(claimIssue.to(dispatchCodex).to(listPlaneBuildingStates).to(resolveBuildingState).to(movePlaneBuilding).to(respondDispatched))
+    .onTrue(claimIssue.to(requestCodex).to(listPlaneBuildingStates).to(resolveBuildingState).to(movePlaneBuilding).to(respondDispatched))
     .onFalse(respondIgnored));
 `;
 

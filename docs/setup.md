@@ -71,7 +71,7 @@ Configure Slack interactivity to send button callbacks to `/webhook/slack-agent-
 
 1. Plane task moves to `Ready`.
 2. n8n creates the GitHub issue.
-3. n8n dispatches Codex to build the issue.
+3. n8n comments `@codex` on the GitHub issue to request a build.
 4. Codex creates a feature branch, implements the change, validates locally, and opens a PR.
 5. GitHub Actions checks the PR.
 6. Slack receives one approval message with Approve, Request Changes, and Block buttons.

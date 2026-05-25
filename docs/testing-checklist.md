@@ -22,14 +22,14 @@ Use this checklist before trusting the automation with real work.
 - Confirm Plane receives a GitHub issue link comment or custom field update.
 - Confirm a failed GitHub API call leaves Plane in `Ready` and creates a visible failure note where possible.
 
-## GitHub Issue to Codex Dispatch
+## GitHub Issue to Codex Request
 
 - Send a GitHub `issues.opened` payload with labels `plane`, `codex-ready`, and `automation`.
 - Confirm n8n ignores issues missing `plane_issue_id` or `plane_project_id`.
 - Confirm n8n ignores issues already labeled `codex-in-progress`, `codex-pr-open`, `done`, or `blocked`.
 - Confirm n8n claims eligible issues with `codex-in-progress`.
-- Confirm Codex receives repo, GitHub issue, Plane issue, and Plane project metadata.
-- Confirm Plane moves to `Building` only after Codex dispatch is accepted.
+- Confirm n8n comments on the issue with `@codex` and required PR metadata instructions.
+- Confirm Plane moves to `Building` only after the Codex request comment is created.
 
 ## GitHub PR to Slack Approval
 

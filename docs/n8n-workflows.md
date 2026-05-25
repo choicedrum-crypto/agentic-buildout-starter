@@ -62,7 +62,7 @@ Slack approval message must include:
 - Summary and risk notes from the PR body where available.
 - Buttons for `Approve`, `Request Changes`, and `Block`.
 
-## Workflow B2: GitHub Issue to Codex Dispatch
+## Workflow B2: GitHub Issue to Codex Request
 
 Spec: `n8n-workflows/github-issue-to-codex-dispatch.spec.json`
 
@@ -74,9 +74,9 @@ Core logic:
 2. Ignore issues already labeled in-progress, PR-open, done, or blocked.
 3. Parse `plane_issue_id`, `plane_project_id`, and Plane URL from the issue body.
 4. Claim the issue with a visible in-progress label.
-5. Dispatch Codex with the GitHub issue and Plane metadata.
+5. Comment on the issue with an `@codex` implementation request and required PR metadata.
 6. Resolve the Plane `Building` state by name in the Plane project.
-7. Move Plane to `Building` after dispatch succeeds.
+7. Move Plane to `Building` after the Codex request comment is created.
 
 ## Workflow B3: Slack Approval to Merge
 
