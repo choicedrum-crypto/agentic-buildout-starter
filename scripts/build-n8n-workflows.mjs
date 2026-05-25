@@ -671,6 +671,259 @@ return [{
   };
 }
 
+function buildEmailCorrectionReviewRestWorkflow(name) {
+  const config = {
+    ms_user_email: 'dbradley@tciallc.com',
+    audit_table: 'inbox_classifications',
+    correction_table: 'inbox_classification_corrections',
+    lookback_days: 7,
+    batch_limit: 20,
+    workflow_version: name,
+    outlook_category_labels: ['Q1: Do Now', 'Q2: Schedule', 'Q3: Delegate', 'Q4: Eliminate', 'QR: Quarantine'],
+  };
+
+  const buildBatchCode = String.raw`
+const config = $('CONFIG').item.json.config || {};
+const rows = $input.all().map((item) => item.json).filter((row) => row.message_id);
+if (!rows.length) {
+  return [{
+    json: {
+      config,
+      audit_rows: [],
+      requests: [{ id: '0', method: 'GET', url: '/users/' + encodeURIComponent(config.ms_user_email) + '?$select=id' }],
+      correction_status: 'skipped_no_recent_audit_rows',
+    },
+  }];
+}
+
+return [{
+  json: {
+    config,
+    audit_rows: rows,
+    requests: rows.map((row, index) => ({
+      id: String(index),
+      method: 'GET',
+      url: '/users/' + encodeURIComponent(config.ms_user_email) + '/messages/' + encodeURIComponent(row.message_id) + '?$select=id,categories',
+    })),
+  },
+}];
+`;
+
+  const prepareCorrectionInsertsCode = String.raw`
+const source = $('Build Outlook Category Batch').item.json;
+const config = source.config || {};
+const auditRows = Array.isArray(source.audit_rows) ? source.audit_rows : [];
+const responses = Array.isArray($json.responses) ? $json.responses : [];
+const categoryLabels = new Set(config.outlook_category_labels || []);
+
+function sql(value) {
+  if (value === null || value === undefined || value === '') return 'NULL';
+  return "'" + String(value).replace(/'/g, "''") + "'";
+}
+
+const corrections = [];
+for (const response of responses) {
+  const index = Number(response.id);
+  const audit = auditRows[index];
+  if (!audit || response.status < 200 || response.status >= 300) continue;
+  const categories = Array.isArray(response.body?.categories) ? response.body.categories : [];
+  const observed = categories.find((label) => categoryLabels.has(label));
+  if (!observed || observed === audit.outlook_category_label) continue;
+  corrections.push({
+    audit_id: audit.id,
+    message_id: audit.message_id,
+    predicted_quadrant: audit.quadrant,
+    predicted_category_label: audit.outlook_category_label,
+    observed_category_label: observed,
+  });
+}
+
+if (!corrections.length) {
+  return [{ json: { query: "select null::int as id, 'no_manual_corrections_detected' as correction_status", checked_rows: auditRows.length } }];
+}
+
+return corrections.map((row) => ({
+  json: {
+    query: [
+      'insert into inbox_classification_corrections (',
+      'audit_id, message_id, predicted_quadrant, predicted_category_label, observed_category_label, correction_source',
+      ') values (',
+      [sql(row.audit_id), sql(row.message_id), sql(row.predicted_quadrant), sql(row.predicted_category_label), sql(row.observed_category_label), sql('outlook_manual_change')].join(', '),
+      ') on conflict (message_id, observed_category_label) do nothing returning id',
+    ].join(' '),
+  },
+}));
+`;
+
+  const restoreCorrectionResponseCode = String.raw`
+const inserted = $input.all();
+const insertedCount = inserted.filter((item) => item.json?.id).length;
+const noopStatus = inserted.find((item) => item.json?.correction_status)?.json?.correction_status;
+return [{
+  json: {
+    ok: true,
+    action: 'email_categorizer_correction_review',
+    correction_status: noopStatus || 'inserted_corrections',
+    correction_insert_count: insertedCount,
+    workflow_version: $('CONFIG').item.json.config?.workflow_version,
+  },
+}];
+`;
+
+  return {
+    name,
+    nodes: [
+      {
+        parameters: {},
+        id: 'manual-trigger',
+        name: 'Manual Trigger',
+        type: 'n8n-nodes-base.manualTrigger',
+        typeVersion: 1,
+        position: [0, 0],
+      },
+      {
+        parameters: {
+          rule: {
+            interval: [{ field: 'cronExpression', expression: '0 23 * * *' }],
+          },
+        },
+        id: 'nightly-schedule',
+        name: 'Nightly Schedule',
+        type: 'n8n-nodes-base.scheduleTrigger',
+        typeVersion: 1.2,
+        position: [0, 220],
+      },
+      {
+        parameters: {
+          mode: 'manual',
+          includeOtherFields: true,
+          assignments: {
+            assignments: [{ id: 'config-object', name: 'config', type: 'object', value: config }],
+          },
+        },
+        id: 'config',
+        name: 'CONFIG',
+        type: 'n8n-nodes-base.set',
+        typeVersion: 3.4,
+        position: [280, 120],
+      },
+      {
+        parameters: {
+          resource: 'database',
+          operation: 'executeQuery',
+          query:
+            "select distinct on (message_id) id, message_id, quadrant, outlook_category_label, classified_at from inbox_classifications where classified_at >= now() - interval '7 days' order by message_id, classified_at desc limit 20",
+          options: { queryBatching: 'independently' },
+        },
+        credentials: {
+          postgres: {
+            id: 'ksnKn12JiFB34IUU',
+            name: 'Email Categorizer Postgres',
+          },
+        },
+        id: 'load-recent-audit-rows',
+        name: 'Load Recent Audit Rows',
+        type: 'n8n-nodes-base.postgres',
+        typeVersion: 2.6,
+        position: [560, 120],
+      },
+      {
+        parameters: {
+          mode: 'runOnceForAllItems',
+          language: 'javaScript',
+          jsCode: buildBatchCode,
+        },
+        id: 'build-outlook-category-batch',
+        name: 'Build Outlook Category Batch',
+        type: 'n8n-nodes-base.code',
+        typeVersion: 2,
+        position: [840, 120],
+      },
+      {
+        parameters: {
+          method: 'POST',
+          url: 'https://graph.microsoft.com/v1.0/$batch',
+          authentication: 'predefinedCredentialType',
+          nodeCredentialType: 'microsoftOutlookOAuth2Api',
+          sendHeaders: true,
+          headerParameters: { parameters: [{ name: 'Accept', value: 'application/json' }, { name: 'Content-Type', value: 'application/json' }] },
+          sendBody: true,
+          contentType: 'json',
+          specifyBody: 'json',
+          jsonBody: '={{ JSON.stringify({ requests: $json.requests || [] }) }}',
+          options: {},
+        },
+        credentials: {
+          microsoftOutlookOAuth2Api: {
+            id: 'UPbI07LdV7IQhWzs',
+            name: 'Microsoft Outlook account',
+          },
+        },
+        id: 'fetch-current-outlook-categories',
+        name: 'Fetch Current Outlook Categories',
+        type: 'n8n-nodes-base.httpRequest',
+        typeVersion: 4.4,
+        position: [1120, 120],
+      },
+      {
+        parameters: {
+          mode: 'runOnceForAllItems',
+          language: 'javaScript',
+          jsCode: prepareCorrectionInsertsCode,
+        },
+        id: 'prepare-correction-inserts',
+        name: 'Prepare Correction Inserts',
+        type: 'n8n-nodes-base.code',
+        typeVersion: 2,
+        position: [1400, 120],
+      },
+      {
+        parameters: {
+          resource: 'database',
+          operation: 'executeQuery',
+          query: '={{ $json.query }}',
+          options: { queryBatching: 'independently' },
+        },
+        credentials: {
+          postgres: {
+            id: 'ksnKn12JiFB34IUU',
+            name: 'Email Categorizer Postgres',
+          },
+        },
+        id: 'insert-correction-rows',
+        name: 'Insert Correction Rows',
+        type: 'n8n-nodes-base.postgres',
+        typeVersion: 2.6,
+        position: [1680, 120],
+        continueOnFail: true,
+      },
+      {
+        parameters: {
+          mode: 'runOnceForAllItems',
+          language: 'javaScript',
+          jsCode: restoreCorrectionResponseCode,
+        },
+        id: 'restore-correction-response',
+        name: 'Restore Correction Response',
+        type: 'n8n-nodes-base.code',
+        typeVersion: 2,
+        position: [1960, 120],
+      },
+    ],
+    connections: {
+      'Manual Trigger': { main: [[{ node: 'CONFIG', type: 'main', index: 0 }]] },
+      'Nightly Schedule': { main: [[{ node: 'CONFIG', type: 'main', index: 0 }]] },
+      CONFIG: { main: [[{ node: 'Load Recent Audit Rows', type: 'main', index: 0 }]] },
+      'Load Recent Audit Rows': { main: [[{ node: 'Build Outlook Category Batch', type: 'main', index: 0 }]] },
+      'Build Outlook Category Batch': { main: [[{ node: 'Fetch Current Outlook Categories', type: 'main', index: 0 }]] },
+      'Fetch Current Outlook Categories': { main: [[{ node: 'Prepare Correction Inserts', type: 'main', index: 0 }]] },
+      'Prepare Correction Inserts': { main: [[{ node: 'Insert Correction Rows', type: 'main', index: 0 }]] },
+      'Insert Correction Rows': { main: [[{ node: 'Restore Correction Response', type: 'main', index: 0 }]] },
+    },
+    settings: { executionOrder: 'v1', availableInMCP: true },
+  };
+}
+
 async function createEmailWorkflowViaRest(name) {
   const existing = await n8nApi('GET', `/workflows?name=${encodeURIComponent('Email Categorizer')}&limit=100`);
   const previous = (existing.data || []).filter(
@@ -686,6 +939,23 @@ async function createEmailWorkflowViaRest(name) {
   }
 
   const created = await n8nApi('POST', '/workflows', buildEmailCategorizerRestWorkflow(name));
+  await n8nApi('POST', `/workflows/${created.id}/activate`, {});
+  return created.id;
+}
+
+async function createRestWorkflowViaRest(baseName, publishedName, builder) {
+  const existing = await n8nApi('GET', `/workflows?name=${encodeURIComponent(baseName)}&limit=100`);
+  const previous = (existing.data || []).filter(
+    (workflowItem) => workflowItem.id && (workflowItem.name === baseName || workflowItem.name.startsWith(`${baseName} - Published `)),
+  );
+  for (const workflowItem of previous) {
+    if (workflowItem.active) {
+      await n8nApi('POST', `/workflows/${workflowItem.id}/deactivate`);
+      console.log(`deactivated previous ${baseName} (${workflowItem.id})`);
+    }
+  }
+
+  const created = await n8nApi('POST', '/workflows', builder(publishedName));
   await n8nApi('POST', `/workflows/${created.id}/activate`, {});
   return created.id;
 }
@@ -3425,6 +3695,12 @@ let workflows = [
     verifyContains: ['dbradley@tciallc.com', 'Get Unread Uncategorized Outlook Metadata', 'dbhub_ollama', 'DBHub Ollama Tier 3 Metadata Classifier'],
     createAndSwap: true,
   },
+  {
+    name: 'Email Categorizer Correction Review',
+    description: 'Nightly dry-run companion that records manual Outlook category corrections against Email Categorizer audit rows.',
+    restWorkflowBuilder: buildEmailCorrectionReviewRestWorkflow,
+    createAndSwapRest: true,
+  },
 ];
 
 const validateOnly = process.argv.includes('--validate-only');
@@ -3444,6 +3720,19 @@ await mcp('initialize', {
 });
 
 for (const item of workflows) {
+  if (item.createAndSwapRest) {
+    if (validateOnly) {
+      console.log(`validated ${item.name}`);
+      continue;
+    }
+
+    const publishToken = (env.GITHUB_SHA || new Date().toISOString()).replace(/[^a-zA-Z0-9]/g, '').slice(0, 12);
+    const publishedName = `${item.name} - Published ${publishToken}`;
+    const workflowId = await createRestWorkflowViaRest(item.name, publishedName, item.restWorkflowBuilder);
+    console.log(`created-and-swapped ${item.name} via REST as ${publishedName} (${workflowId})`);
+    continue;
+  }
+
   const validation = await tool('validate_workflow', { code: item.code });
   const validationContent = getStructuredContent(validation);
   if (validationContent.valid === false) {
