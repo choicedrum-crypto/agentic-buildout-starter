@@ -8,9 +8,11 @@ CREATE TABLE IF NOT EXISTS inbox_classifications (
     internet_message_id     TEXT,
     subject                 TEXT,
     sender                  TEXT,
+    sender_domain           TEXT,
     received_at             TIMESTAMPTZ,
     importance              TEXT,
     has_attachments         BOOLEAN,
+    original_categories     JSONB       NOT NULL DEFAULT '[]'::JSONB,
     quadrant                TEXT        NOT NULL CHECK (quadrant IN ('Q1','Q2','Q3','Q4','QR')),
     outlook_category_label  TEXT,
     tier_fired              SMALLINT    NOT NULL CHECK (tier_fired IN (0,1,2,3)),
@@ -19,6 +21,7 @@ CREATE TABLE IF NOT EXISTS inbox_classifications (
     llm_rationale           TEXT,
     dry_run                 BOOLEAN     NOT NULL DEFAULT TRUE,
     applied_ok              BOOLEAN     NOT NULL DEFAULT FALSE,
+    workflow_version        TEXT,
     error_text              TEXT
 );
 
@@ -33,6 +36,28 @@ CREATE INDEX IF NOT EXISTS idx_inbox_classifications_quadrant
 
 CREATE INDEX IF NOT EXISTS idx_inbox_classifications_message_id
     ON inbox_classifications (message_id);
+
+CREATE INDEX IF NOT EXISTS idx_inbox_classifications_sender_domain
+    ON inbox_classifications (sender_domain);
+
+CREATE TABLE IF NOT EXISTS inbox_classification_corrections (
+    id                          BIGSERIAL PRIMARY KEY,
+    detected_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    classification_id           BIGINT REFERENCES inbox_classifications(id),
+    message_id                  TEXT        NOT NULL,
+    predicted_quadrant          TEXT        NOT NULL CHECK (predicted_quadrant IN ('Q1','Q2','Q3','Q4','QR')),
+    predicted_category_label    TEXT,
+    observed_category_label     TEXT        NOT NULL,
+    correction_source           TEXT        NOT NULL DEFAULT 'outlook_manual_change',
+    rule_suggestion_status      TEXT        NOT NULL DEFAULT 'new',
+    notes                       TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_inbox_corrections_message_observed
+    ON inbox_classification_corrections (message_id, observed_category_label);
+
+CREATE INDEX IF NOT EXISTS idx_inbox_corrections_status
+    ON inbox_classification_corrections (rule_suggestion_status, detected_at DESC);
 
 CREATE OR REPLACE VIEW v_today_by_quadrant AS
 SELECT
