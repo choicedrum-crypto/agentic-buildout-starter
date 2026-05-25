@@ -67,7 +67,7 @@ Use `scripts/email-categorizer-audit.sql` for the dedicated classifier Postgres 
 - `workflow_version` so daily correction reviews can trace which deployed classifier version made the prediction.
 - `inbox_classification_corrections` rows for manual Outlook category changes detected later.
 
-The deployed dry-run workflow writes `audit_rows` through the n8n Postgres credential named `Email Categorizer Postgres`. Keep this credential scoped to the dedicated classifier database and the `inbox_classifications` / `inbox_classification_corrections` tables.
+The deployed dry-run workflow prepares `audit_rows` by default. It writes those rows through the n8n Postgres credential named `Email Categorizer Postgres` only when the deploy environment sets `EMAIL_CATEGORIZER_ENABLE_POSTGRES_AUDIT=true`. Keep this credential scoped to the dedicated classifier database and the `inbox_classifications` / `inbox_classification_corrections` tables.
 
 ## Manual Correction Review
 

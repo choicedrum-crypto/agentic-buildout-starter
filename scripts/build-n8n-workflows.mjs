@@ -127,15 +127,17 @@ async function n8nApi(method, path, body) {
 }
 
 function buildEmailCategorizerRestWorkflow(name) {
+  const enablePostgresAudit = env.EMAIL_CATEGORIZER_ENABLE_POSTGRES_AUDIT === 'true';
   const config = {
     ms_user_email: 'dbradley@tciallc.com',
     dry_run: true,
     batch_limit: 25,
     tier3_confidence_threshold: 0.65,
     slack_exception_channel: '#workflow-builder',
-  audit_table: 'inbox_classifications',
-  manual_correction_table: 'inbox_classification_corrections',
-  postgres_credential_name: 'Email Categorizer Postgres',
+    audit_table: 'inbox_classifications',
+    manual_correction_table: 'inbox_classification_corrections',
+    enable_postgres_audit: enablePostgresAudit,
+    postgres_credential_name: 'Email Categorizer Postgres',
   workflow_version: name,
     tier3_provider: 'dbhub_ollama',
     local_llm_base_url: 'http://100.66.221.24:11434',
@@ -320,7 +322,7 @@ return [{
     local_llm_model: config.local_llm_model,
     messages: results.length,
     outlook_patch_status: 'disabled_dry_run',
-    audit_status: 'pending_postgres_insert',
+    audit_status: config.enable_postgres_audit ? 'pending_postgres_insert' : 'prepared_postgres_pending_credential',
     audit_table: config.audit_table,
     audit_rows: auditRows,
     results,
@@ -439,49 +441,53 @@ return [{
         typeVersion: 2,
         position: [1120, 120],
       },
-      {
-        parameters: {
-          mode: 'runOnceForAllItems',
-          language: 'javaScript',
-          jsCode: prepareAuditInsertCode,
-        },
-        id: 'prepare-audit-insert',
-        name: 'Prepare Audit Insert Rows',
-        type: 'n8n-nodes-base.code',
-        typeVersion: 2,
-        position: [1400, 120],
-      },
-      {
-        parameters: {
-          operation: 'insert',
-          schema: { __rl: true, mode: 'name', value: 'public' },
-          table: { __rl: true, mode: 'name', value: 'inbox_classifications' },
-          columns: { mappingMode: 'autoMapInputData', value: null },
-          options: {},
-        },
-        credentials: {
-          postgres: {
-            name: 'Email Categorizer Postgres',
-          },
-        },
-        id: 'insert-audit-rows',
-        name: 'Insert Audit Rows',
-        type: 'n8n-nodes-base.postgres',
-        typeVersion: 2.6,
-        position: [1680, 120],
-      },
-      {
-        parameters: {
-          mode: 'runOnceForAllItems',
-          language: 'javaScript',
-          jsCode: restoreAuditResponseCode,
-        },
-        id: 'restore-audit-response',
-        name: 'Restore Audit Response',
-        type: 'n8n-nodes-base.code',
-        typeVersion: 2,
-        position: [1960, 120],
-      },
+      ...(enablePostgresAudit
+        ? [
+            {
+              parameters: {
+                mode: 'runOnceForAllItems',
+                language: 'javaScript',
+                jsCode: prepareAuditInsertCode,
+              },
+              id: 'prepare-audit-insert',
+              name: 'Prepare Audit Insert Rows',
+              type: 'n8n-nodes-base.code',
+              typeVersion: 2,
+              position: [1400, 120],
+            },
+            {
+              parameters: {
+                operation: 'insert',
+                schema: { __rl: true, mode: 'name', value: 'public' },
+                table: { __rl: true, mode: 'name', value: 'inbox_classifications' },
+                columns: { mappingMode: 'autoMapInputData', value: null },
+                options: {},
+              },
+              credentials: {
+                postgres: {
+                  name: 'Email Categorizer Postgres',
+                },
+              },
+              id: 'insert-audit-rows',
+              name: 'Insert Audit Rows',
+              type: 'n8n-nodes-base.postgres',
+              typeVersion: 2.6,
+              position: [1680, 120],
+            },
+            {
+              parameters: {
+                mode: 'runOnceForAllItems',
+                language: 'javaScript',
+                jsCode: restoreAuditResponseCode,
+              },
+              id: 'restore-audit-response',
+              name: 'Restore Audit Response',
+              type: 'n8n-nodes-base.code',
+              typeVersion: 2,
+              position: [1960, 120],
+            },
+          ]
+        : []),
       {
         parameters: {
           respondWith: 'json',
@@ -501,10 +507,16 @@ return [{
       CONFIG: { main: [[{ node: 'Prepare Dry Run Classification', type: 'main', index: 0 }]] },
       'Prepare Dry Run Classification': { main: [[{ node: 'Call DBHub Ollama', type: 'main', index: 0 }]] },
       'Call DBHub Ollama': { main: [[{ node: 'Merge DBHub Ollama Result', type: 'main', index: 0 }]] },
-      'Merge DBHub Ollama Result': { main: [[{ node: 'Prepare Audit Insert Rows', type: 'main', index: 0 }]] },
-      'Prepare Audit Insert Rows': { main: [[{ node: 'Insert Audit Rows', type: 'main', index: 0 }]] },
-      'Insert Audit Rows': { main: [[{ node: 'Restore Audit Response', type: 'main', index: 0 }]] },
-      'Restore Audit Response': { main: [[{ node: 'Return Dry Run Result', type: 'main', index: 0 }]] },
+      ...(enablePostgresAudit
+        ? {
+            'Merge DBHub Ollama Result': { main: [[{ node: 'Prepare Audit Insert Rows', type: 'main', index: 0 }]] },
+            'Prepare Audit Insert Rows': { main: [[{ node: 'Insert Audit Rows', type: 'main', index: 0 }]] },
+            'Insert Audit Rows': { main: [[{ node: 'Restore Audit Response', type: 'main', index: 0 }]] },
+            'Restore Audit Response': { main: [[{ node: 'Return Dry Run Result', type: 'main', index: 0 }]] },
+          }
+        : {
+            'Merge DBHub Ollama Result': { main: [[{ node: 'Return Dry Run Result', type: 'main', index: 0 }]] },
+          }),
     },
     settings: { executionOrder: 'v1' },
   };

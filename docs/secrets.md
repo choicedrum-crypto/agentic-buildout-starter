@@ -11,6 +11,10 @@ Add these in GitHub: repo -> Settings -> Secrets and variables -> Actions.
 - `N8N_API_KEY` - n8n API key used by the post-merge deploy job. Store only in GitHub Secrets.
 - `N8N_REST_API_KEY` - n8n public API key used only when the Email Categorizer publish falls back to the REST API. Create this in n8n under Settings -> n8n API with workflow create/read/list/update/delete/activate scopes, then store it only in GitHub Secrets.
 
+Optional deploy variables:
+
+- `EMAIL_CATEGORIZER_ENABLE_POSTGRES_AUDIT` - set to `true` only after the n8n credential named `Email Categorizer Postgres` exists and `scripts/email-categorizer-audit.sql` has been applied. When unset, the workflow prepares audit rows but does not include the Postgres insert node.
+
 Optional, depending on how you later replace the deploy placeholder:
 
 - `PRODUCTION_DEPLOY_TOKEN` - deployment provider token.
