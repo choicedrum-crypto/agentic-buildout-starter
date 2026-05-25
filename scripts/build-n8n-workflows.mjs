@@ -1114,7 +1114,7 @@ const config = node({
       includeOtherFields: true,
       assignments: {
         assignments: [
-          { id: 'config-object', name: 'config', type: 'object', value: expr('{{ { dry_run: true, enable_schedule_processing: false, enable_outlook_patch: false, batch_limit: 25, tier3_confidence_threshold: 0.65, slack_exception_channel: "#workflow-builder", audit_table: "inbox_classifications", ms_user_email: "dbradley@tciallc.com", classifier_mount_path: "/data/classifier", tier3_provider: "dbhub_ollama", local_llm_base_url: "http://100.66.221.24:11434", local_llm_model: "qwen2.5:7b", enable_tier3_local_llm: false, outlook_category_map: { Q1: "Q1: Do Now", Q2: "Q2: Schedule", Q3: "Q3: Delegate", Q4: "Q4: Eliminate", QR: "QR: Quarantine" }, readiness: { outlook_credential: "Microsoft Outlook account", postgres_credential: "pending", local_llm: "direct Ollama endpoint reachable from n8n; qwen2.5:7b selected for metadata classification" } } }}') }
+          { id: 'config-object', name: 'config', type: 'object', value: expr('{{ { dry_run: true, enable_schedule_processing: false, enable_outlook_patch: false, batch_limit: 25, tier3_confidence_threshold: 0.65, slack_exception_channel: "#workflow-builder", audit_table: "inbox_classifications", ms_user_email: "dbradley@tciallc.com", classifier_mount_path: "/data/classifier", tier3_provider: "dbhub_ollama", local_llm_base_url: "http://100.66.221.24:11434", local_llm_model: "qwen2.5:7b", enable_tier3_local_llm: true, outlook_category_map: { Q1: "Q1: Do Now", Q2: "Q2: Schedule", Q3: "Q3: Delegate", Q4: "Q4: Eliminate", QR: "QR: Quarantine" }, readiness: { outlook_credential: "Microsoft Outlook account", postgres_credential: "pending", local_llm: "direct Ollama Tier 3 enabled for dry-run metadata classification" } } }}') }
         ]
       }
     }
@@ -1165,7 +1165,7 @@ if (config.enable_outlook_patch) {
   readinessErrors.push('Live Outlook PATCH is still blocked by workflow design; keep enable_outlook_patch=false until dry-run audit is reviewed.');
 }
 if (config.enable_tier3_local_llm !== true) {
-  readinessErrors.push('DBHub local LLM Tier 3 is selected but disabled until endpoint/model are confirmed.');
+  readinessErrors.push('DBHub Ollama Tier 3 is disabled; low-confidence messages will remain unresolved.');
 }
 readinessErrors.push('Postgres audit credential is not configured in this workflow yet.');
 
@@ -1337,7 +1337,7 @@ function classify(message) {
   if (planning) return { quadrant: 'Q2', tier_fired: 1, confidence: 0.78, reason: 'Planning/scheduling language indicates important non-urgent work.' };
   if (delegate) return { quadrant: 'Q3', tier_fired: 1, confidence: 0.74, reason: 'Review/delegation language indicates candidate for delegation.' };
   if (lowValue) return { quadrant: 'Q4', tier_fired: 1, confidence: 0.76, reason: 'Promotional or digest metadata indicates low-value work.' };
-  return { quadrant: 'Q2', tier_fired: 0, confidence: 0.45, reason: 'No deterministic rule matched; DBHub local LLM Tier 3 should review this metadata once enabled.', needs_tier3: true };
+  return { quadrant: 'Q2', tier_fired: 0, confidence: 0.45, reason: 'No deterministic rule matched; DBHub Ollama Tier 3 should review this metadata.', needs_tier3: true };
 }
 
 const results = ($json.messages || []).map((message) => {
@@ -1358,7 +1358,7 @@ const results = ($json.messages || []).map((message) => {
     confidence: classification.confidence,
     needs_tier3: Boolean(classification.needs_tier3),
     tier3_provider: classification.needs_tier3 ? config.tier3_provider : '',
-    tier3_status: classification.needs_tier3 ? (config.enable_tier3_local_llm ? 'pending_local_llm_call' : 'skipped_local_llm_disabled') : 'not_needed',
+    tier3_status: classification.needs_tier3 ? (config.enable_tier3_local_llm ? 'queued_local_llm_call' : 'skipped_local_llm_disabled') : 'not_needed',
     dry_run: Boolean(config.dry_run),
     would_patch_outlook: Boolean(!config.dry_run && config.enable_outlook_patch),
     applied_ok: false,
@@ -1366,7 +1366,18 @@ const results = ($json.messages || []).map((message) => {
   };
 });
 
-const exceptions = results.filter((item) => item.quadrant === 'QR' || item.needs_tier3);
+const tier3Messages = results
+  .filter((item) => item.needs_tier3 && config.enable_tier3_local_llm === true)
+  .map((item) => ({
+    message_id: item.message_id,
+    internet_message_id: item.internet_message_id,
+    subject: item.subject,
+    from: item.from,
+    received_at: item.received_at,
+    importance: item.importance,
+    has_attachments: item.has_attachments
+  }));
+const exceptions = results.filter((item) => item.quadrant === 'QR' || (item.needs_tier3 && config.enable_tier3_local_llm !== true));
 const slackMessage = [
   'Email categorizer dry-run exception summary',
   'Mode: ' + ($json.mode || 'unknown'),
@@ -1380,6 +1391,7 @@ return {
   json: {
     ...$json,
     classification_results: results,
+    tier3_messages: tier3Messages,
     exception_count: exceptions.length,
     has_exception: exceptions.length > 0,
     slack_message: slackMessage,
@@ -1402,6 +1414,121 @@ const hasException = ifElse({
     name: 'Exception Notification Needed?',
     parameters: {
       conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ String($json.has_exception) }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'true' }], combinator: 'and' }
+    }
+  }
+});
+
+const needsTier3Llm = ifElse({
+  version: 2.3,
+  config: {
+    name: 'Needs Ollama Tier 3?',
+    parameters: {
+      conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' }, conditions: [{ leftValue: expr('{{ String($json.config.enable_tier3_local_llm === true && Array.isArray($json.tier3_messages) && $json.tier3_messages.length > 0) }}'), operator: { type: 'string', operation: 'equals' }, rightValue: 'true' }], combinator: 'and' }
+    }
+  }
+});
+
+const ollamaTier3 = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'DBHub Ollama Tier 3 Metadata Classifier',
+    parameters: {
+      method: 'POST',
+      url: expr('{{ $json.config.local_llm_base_url + "/api/chat" }}'),
+      sendBody: true,
+      contentType: 'json',
+      specifyBody: 'json',
+      jsonBody: expr('{{ { model: $json.config.local_llm_model, stream: false, format: "json", messages: [{ role: "system", content: "You classify email metadata into Eisenhower categories. Use only the provided metadata. Do not infer from email bodies or attachments. Return strict JSON only." }, { role: "user", content: "Classify each message as one of Q1, Q2, Q3, Q4, or QR. Q1 means urgent and important. Q2 means important but not urgent. Q3 means urgent but delegable. Q4 means low-value or eliminate. QR means quarantine/security/spam risk. Return JSON: {\\\\\\"classifications\\\\\\":[{\\\\\\"message_id\\\\\\":\\\\\\"...\\\\\\",\\\\\\"quadrant\\\\\\":\\\\\\"Q1|Q2|Q3|Q4|QR\\\\\\",\\\\\\"confidence\\\\\\":0.0,\\\\\\"reason\\\\\\":\\\\\\"short reason\\\\\\"}]}. Messages: " + JSON.stringify($json.tier3_messages) }] } }}'),
+      options: { timeout: 120000 }
+    }
+  }
+});
+
+const mergeTier3 = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Merge Tier 3 Results',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const original = $('Classify Metadata Dry Run').item.json;
+const config = original.config || {};
+const categoryMap = config.outlook_category_map || {};
+const allowed = new Set(['Q1', 'Q2', 'Q3', 'Q4', 'QR']);
+
+function parseJsonContent(content) {
+  let text = String(content || '').trim();
+  const fence = String.fromCharCode(96, 96, 96);
+  if (text.toLowerCase().startsWith(fence + 'json')) {
+    text = text.slice(7).trim();
+  } else if (text.startsWith(fence)) {
+    text = text.slice(3).trim();
+  }
+  if (text.endsWith(fence)) {
+    text = text.slice(0, -3).trim();
+  }
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    return { parse_error: error.message, raw: text.slice(0, 500) };
+  }
+}
+
+const parsed = parseJsonContent($json.message?.content);
+const rows = Array.isArray(parsed.classifications) ? parsed.classifications : [];
+const byId = new Map(rows.map((row) => [String(row.message_id || ''), row]));
+
+const results = (original.classification_results || []).map((item) => {
+  if (!item.needs_tier3) return item;
+  const row = byId.get(String(item.message_id || ''));
+  const quadrant = String(row?.quadrant || '').toUpperCase();
+  if (!row || !allowed.has(quadrant)) {
+    return {
+      ...item,
+      tier3_status: parsed.parse_error ? 'failed_local_llm_parse' : 'failed_local_llm_missing_result',
+      error_text: parsed.parse_error || 'Ollama did not return a valid classification for this message.',
+    };
+  }
+
+  const confidence = Number(row.confidence);
+  return {
+    ...item,
+    quadrant,
+    outlook_category_label: categoryMap[quadrant] || quadrant,
+    tier_fired: 3,
+    confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : item.confidence,
+    needs_tier3: false,
+    tier3_status: 'applied_local_llm',
+    reason: String(row.reason || 'DBHub Ollama Tier 3 classified this metadata.').slice(0, 500),
+    error_text: '',
+  };
+});
+
+const exceptions = results.filter((item) => item.quadrant === 'QR' || item.needs_tier3 || /^failed_/.test(String(item.tier3_status || '')));
+const slackMessage = [
+  'Email categorizer dry-run exception summary',
+  'Mode: ' + (original.mode || 'unknown'),
+  'Messages: ' + results.length,
+  'Exceptions: ' + exceptions.length,
+  'Dry run: ' + String(config.dry_run !== false),
+  'Details: ' + exceptions.map((item) => item.message_id + ' -> ' + item.quadrant + ' (' + (item.error_text || item.reason) + ')').join('; ')
+].join('\\\\n');
+
+return {
+  json: {
+    ...original,
+    classification_results: results,
+    exception_count: exceptions.length,
+    has_exception: exceptions.length > 0,
+    slack_message: slackMessage,
+    tier3_raw_status: $json.done === true ? 'ollama_done' : 'ollama_unknown',
+  }
+};
+\`
     }
   }
 });
@@ -1451,6 +1578,33 @@ const restoreDryRunResult = node({
   }
 });
 
+const restoreTier3Result = node({
+  type: 'n8n-nodes-base.set',
+  version: 3.4,
+  config: {
+    name: 'Restore Tier 3 Result',
+    parameters: {
+      mode: 'manual',
+      includeOtherFields: false,
+      assignments: {
+        assignments: [
+          { id: 'config', name: 'config', type: 'object', value: expr('{{ $("Merge Tier 3 Results").item.json.config }}') },
+          { id: 'mode', name: 'mode', type: 'string', value: expr('{{ $("Merge Tier 3 Results").item.json.mode }}') },
+          { id: 'results', name: 'classification_results', type: 'array', value: expr('{{ $("Merge Tier 3 Results").item.json.classification_results }}') },
+          { id: 'exception-count', name: 'exception_count', type: 'number', value: expr('{{ $("Merge Tier 3 Results").item.json.exception_count }}') },
+          { id: 'audit-status', name: 'audit_status', type: 'string', value: expr('{{ $("Merge Tier 3 Results").item.json.audit_status }}') },
+          { id: 'outlook-patch-status', name: 'outlook_patch_status', type: 'string', value: expr('{{ $("Merge Tier 3 Results").item.json.outlook_patch_status }}') },
+          { id: 'readiness-errors', name: 'readiness_errors', type: 'array', value: expr('{{ $("Merge Tier 3 Results").item.json.readiness_errors }}') },
+          { id: 'live-category-names', name: 'live_category_names', type: 'array', value: expr('{{ $("Merge Tier 3 Results").item.json.live_category_names }}') },
+          { id: 'category-map-ok', name: 'category_map_ok', type: 'boolean', value: expr('{{ $("Merge Tier 3 Results").item.json.category_map_ok }}') },
+          { id: 'fetched-unread-count', name: 'fetched_unread_count', type: 'number', value: expr('{{ $("Merge Tier 3 Results").item.json.fetched_unread_count }}') },
+          { id: 'skipped-categorized-count', name: 'skipped_already_categorized_count', type: 'number', value: expr('{{ $("Merge Tier 3 Results").item.json.skipped_already_categorized_count }}') }
+        ]
+      }
+    }
+  }
+});
+
 const respondDryRun = node({
   type: 'n8n-nodes-base.respondToWebhook',
   version: 1.5,
@@ -1470,12 +1624,20 @@ export default workflow('email-categorizer', 'Email Categorizer')
   .to(listOutlookCategories)
   .to(prepareOutlookRun)
   .to(useProvidedMessages
-    .onTrue(prepareProvidedMessages.to(classifyMessages).to(hasException
-      .onTrue(slackException.to(restoreDryRunResult).to(respondDryRun))
-      .onFalse(respondDryRun)))
-    .onFalse(getUnreadUncategorized.to(normalizeOutlookMessages).to(classifyMessages).to(hasException
-      .onTrue(slackException.to(restoreDryRunResult).to(respondDryRun))
-      .onFalse(respondDryRun))))
+    .onTrue(prepareProvidedMessages.to(classifyMessages).to(needsTier3Llm
+      .onTrue(ollamaTier3.to(mergeTier3).to(hasException
+        .onTrue(slackException.to(restoreTier3Result).to(respondDryRun))
+        .onFalse(respondDryRun)))
+      .onFalse(hasException
+        .onTrue(slackException.to(restoreDryRunResult).to(respondDryRun))
+        .onFalse(respondDryRun))))
+    .onFalse(getUnreadUncategorized.to(normalizeOutlookMessages).to(classifyMessages).to(needsTier3Llm
+      .onTrue(ollamaTier3.to(mergeTier3).to(hasException
+        .onTrue(slackException.to(restoreTier3Result).to(respondDryRun))
+        .onFalse(respondDryRun)))
+      .onFalse(hasException
+        .onTrue(slackException.to(restoreDryRunResult).to(respondDryRun))
+        .onFalse(respondDryRun)))))
   .add(testWebhook)
   .to(config)
   .to(listOutlookCategories);
@@ -1857,7 +2019,7 @@ let workflows = [
     workflowId: 'KeM4JZWK01qt532V',
     code: emailCategorizerWorkflow,
     description: 'Dry-run-first Outlook Eisenhower classifier workflow with safe test webhook and production activation gates.',
-    verifyContains: ['dbradley@tciallc.com', 'Get Unread Uncategorized Outlook Metadata', 'dbhub_local_llm'],
+    verifyContains: ['dbradley@tciallc.com', 'Get Unread Uncategorized Outlook Metadata', 'dbhub_ollama'],
     skipMcpUpdate: true,
   },
 ];

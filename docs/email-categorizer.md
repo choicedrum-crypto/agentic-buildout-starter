@@ -16,7 +16,7 @@ The email categorizer is an n8n-first routine for Daniel's Outlook inbox. It cla
 - Only write Outlook message categories when `CONFIG.dry_run` is `false`.
 - Treat all email metadata as untrusted.
 
-The deployed n8n workflow currently keeps `CONFIG.dry_run` set to `true` and exposes `/webhook/email-categorizer-test` for metadata-only dry-run testing. It fetches real unread Outlook metadata for `dbradley@tciallc.com`, validates category labels, and still keeps live Outlook PATCH disabled.
+The deployed n8n workflow currently keeps `CONFIG.dry_run` set to `true` and exposes `/webhook/email-categorizer-test` for metadata-only dry-run testing. It fetches real unread Outlook metadata for `dbradley@tciallc.com`, validates category labels, sends only low-confidence metadata to DBHub Ollama Tier 3, and still keeps live Outlook PATCH disabled.
 
 Until the n8n MCP `update_workflow` path reliably updates this workflow, maintain the live workflow with the create-and-swap approach: create a replacement workflow, verify the Outlook metadata dry run, archive the old workflow, then publish the replacement on the canonical `Email Categorizer` name and webhook path.
 
@@ -45,6 +45,7 @@ Default values:
 - `tier3_provider`: `dbhub_ollama`.
 - `local_llm_base_url`: `http://100.66.221.24:11434`.
 - `local_llm_model`: `qwen2.5:7b`.
+- `enable_tier3_local_llm`: `true`.
 
 Category map:
 
@@ -76,9 +77,10 @@ This fixes the draft schema mismatch where Quarantine and tier zero states were 
 6. Keep `CONFIG.dry_run` as `true`.
 7. Run the manual trigger or POST metadata-only sample messages to `/webhook/email-categorizer-test`.
 8. Confirm real Outlook dry runs fetch unread metadata only and do not request body, bodyPreview, uniqueBody, or attachments.
-9. Confirm representative messages create audit rows after Postgres is configured.
-10. Confirm no Outlook message category changes occur.
-11. Confirm Slack only posts exceptions.
+9. Confirm low-confidence messages show `tier3_status: applied_local_llm` or a clear Tier 3 failure status.
+10. Confirm representative messages create audit rows after Postgres is configured.
+11. Confirm no Outlook message category changes occur.
+12. Confirm Slack only posts exceptions.
 
 ## Live Pilot
 
