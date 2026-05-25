@@ -13,7 +13,7 @@
   },
   "credentials": [
     "Microsoft Outlook OAuth2 credential in n8n",
-    "DBHub local LLM endpoint/model for Tier 3 metadata classification",
+    "DBHub direct Ollama endpoint/model for Tier 3 metadata classification",
     "Postgres credential in n8n for classifier audit database",
     "Slack credential in n8n"
   ],
@@ -28,10 +28,9 @@
       "slack_exception_channel": "#workflow-builder",
       "classifier_mount_path": "/data/classifier",
       "audit_table": "inbox_classifications",
-      "tier3_provider": "dbhub_local_llm",
-      "local_llm_base_url": "http://100.66.221.24:4000",
-      "local_llm_model": "local-coder",
-      "local_llm_credential": "DBHub LiteLLM",
+      "tier3_provider": "dbhub_ollama",
+      "local_llm_base_url": "http://100.66.221.24:11434",
+      "local_llm_model": "qwen2.5:7b",
       "enable_tier3_local_llm": false,
       "outlook_category_map": {
         "Q1": "Q1: Do Now",
@@ -115,8 +114,8 @@
     {
       "id": "claude_tier_3",
       "type": "HTTP Request",
-      "name": "DBHub Local LLM Tier 3 Metadata Classifier",
-      "request": "POST {{local_llm_base_url}}/api/chat or compatible local endpoint",
+      "name": "DBHub Ollama Tier 3 Metadata Classifier",
+      "request": "POST {{local_llm_base_url}}/api/chat",
       "body_safety": "Send sender, recipients, subject, received time, importance, and hasAttachments only."
     },
     {
@@ -193,7 +192,7 @@
   },
   "safe_failure_handling": [
     "If Outlook categories cannot be discovered or mapped, stop before fetching messages.",
-    "If the DBHub local LLM fails, keep deterministic result when available, set error_text, audit the attempt, and send Slack exception.",
+    "If the DBHub Ollama call fails, keep deterministic result when available, set error_text, audit the attempt, and send Slack exception.",
     "If local LLM JSON parsing fails, keep deterministic result when available, set error_text, audit the attempt, and send Slack exception.",
     "If Outlook PATCH fails, audit with applied_ok false and send Slack exception.",
     "If Postgres audit insert fails, send Slack exception and do not retry Outlook PATCH.",
@@ -204,7 +203,7 @@
     "Outlook Q1/Q2/Q3/Q4/QR labels are discovered and mapped.",
     "Classifier directory is mounted read-only into the n8n container.",
     "Dedicated classifier Postgres is online and private to the Docker network.",
-    "DBHub LiteLLM endpoint is confirmed reachable from the n8n container, the `local-coder` model alias responds successfully, and the `DBHub LiteLLM` HTTP Header Auth credential exists in n8n.",
+    "DBHub direct Ollama endpoint `http://100.66.221.24:11434` is confirmed reachable from the n8n container and model `qwen2.5:7b` is available.",
     "Dry-run audit rows are reviewed before live PATCH is enabled."
   ]
 }

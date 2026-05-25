@@ -25,7 +25,7 @@ Until the n8n MCP `update_workflow` path reliably updates this workflow, maintai
 - Microsoft Outlook OAuth2 credential for Daniel's mailbox.
 - Slack credential, reusing the existing `Slack account`.
 - Postgres credential for the classifier audit database.
-- `DBHub LiteLLM` HTTP Header Auth credential for Tier 3 metadata classification.
+- DBHub direct Ollama endpoint/model reachable from the n8n container for Tier 3 metadata classification.
 
 No OpenClaw dependency is required.
 
@@ -42,10 +42,9 @@ Default values:
 - `slack_exception_channel`: `#workflow-builder`.
 - `classifier_mount_path`: `/data/classifier`.
 - `audit_table`: `inbox_classifications`.
-- `tier3_provider`: `dbhub_local_llm`.
-- `local_llm_base_url`: `http://100.66.221.24:4000`.
-- `local_llm_model`: `local-coder`.
-- `local_llm_credential`: `DBHub LiteLLM`.
+- `tier3_provider`: `dbhub_ollama`.
+- `local_llm_base_url`: `http://100.66.221.24:11434`.
+- `local_llm_model`: `qwen2.5:7b`.
 
 Category map:
 
@@ -72,7 +71,7 @@ This fixes the draft schema mismatch where Quarantine and tier zero states were 
 1. Confirm the Outlook OAuth2 credential exists in n8n.
 2. Confirm the classifier directory is mounted read-only at `/data/classifier`.
 3. Confirm Postgres is online and private to the Docker network before audit-row validation.
-4. Confirm the `DBHub LiteLLM` credential exists in n8n and sends the LiteLLM master key as the `Authorization` header.
+4. Confirm `http://100.66.221.24:11434/api/tags` returns Ollama models from n8n.
 5. Import or build the workflow from `scripts/build-n8n-workflows.mjs --only "Email Categorizer"`.
 6. Keep `CONFIG.dry_run` as `true`.
 7. Run the manual trigger or POST metadata-only sample messages to `/webhook/email-categorizer-test`.
