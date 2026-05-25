@@ -733,9 +733,31 @@ const createIssue = node({
       authentication: 'accessToken',
       owner: { __rl: true, mode: 'name', value: 'choicedrum-crypto' },
       repository: { __rl: true, mode: 'name', value: 'agentic-buildout-starter' },
-      title: expr('{{ $json.github_issue_title }}'),
-      body: expr('{{ $json.github_issue_body }}'),
+      title: expr('{{ $("Normalize Plane Payload").item.json.github_issue_title }}'),
+      body: expr('{{ $("Normalize Plane Payload").item.json.github_issue_body }}'),
       labels: [{ label: 'plane' }, { label: 'codex-ready' }, { label: 'automation' }]
+    }
+  }
+});
+
+const claimIssue = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Claim Plane for Codex',
+    alwaysOutputData: true,
+    continueOnFail: true,
+    parameters: {
+      method: 'POST',
+      url: expr('{{ $("Normalize Plane Payload").item.json.config.plane_api_base_url + "/api/v1/workspaces/" + $("Normalize Plane Payload").item.json.config.plane_workspace_slug + "/projects/" + $("Normalize Plane Payload").item.json.plane_project_id + "/work-items/" + $("Normalize Plane Payload").item.json.plane_issue_id + "/comments/" }}'),
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] },
+      sendBody: true,
+      contentType: 'json',
+      specifyBody: 'json',
+      jsonBody: expr('{{ { comment_html: "<p>Claimed by Codex routing workflow for GitHub issue creation.</p><ul><li>Workflow: Plane Ready to GitHub Issue</li><li>Labels: " + (($("Normalize Plane Payload").item.json.plane_labels || []).join(", ") || "none") + "</li><li>Claimed at: " + new Date().toISOString() + "</li></ul>", comment_json: {}, access: "INTERNAL", external_source: "codex-routing", external_id: String("codex-claim-" + $("Normalize Plane Payload").item.json.plane_issue_id + "-" + Date.now()) } }}')
     }
   }
 });
@@ -821,7 +843,6 @@ const upsertIssueLock = node({
         matchingColumns: ['plane_issue_id'],
         value: {
           plane_issue_id: expr('{{ $("Normalize Plane Payload").item.json.plane_issue_id }}'),
-          plane_project_id: expr('{{ $("Normalize Plane Payload").item.json.plane_project_id }}'),
           plane_issue_key: expr('{{ $("Normalize Plane Payload").item.json.plane_issue_key }}'),
           status: expr('{{ $("Resolve Canonical GitHub Issue").item.json.duplicate_created ? "deduped" : "active" }}'),
           github_issue_url: expr('{{ $("Resolve Canonical GitHub Issue").item.json.canonical_github_issue_url }}'),
@@ -831,7 +852,6 @@ const upsertIssueLock = node({
         },
         schema: [
           { id: 'plane_issue_id', displayName: 'plane_issue_id', required: true, defaultMatch: true, display: true, type: 'string', canBeUsedToMatch: true },
-          { id: 'plane_project_id', displayName: 'plane_project_id', display: true, type: 'string' },
           { id: 'plane_issue_key', displayName: 'plane_issue_key', display: true, type: 'string' },
           { id: 'status', displayName: 'status', display: true, type: 'string' },
           { id: 'github_issue_url', displayName: 'github_issue_url', display: true, type: 'string' },
@@ -885,6 +905,8 @@ const commentPlane = node({
   version: 4.4,
   config: {
     name: 'Comment on Plane with GitHub Issue',
+    alwaysOutputData: true,
+    continueOnFail: true,
     credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
     parameters: {
       method: 'POST',
@@ -932,7 +954,7 @@ export default workflow('plane-ready-github-issue', 'Plane Ready to GitHub Issue
   .to(normalize)
   .to(isReady
     .onTrue(searchExistingGitHubIssues.to(detectExistingGitHubIssue).to(noExistingIssue
-      .onTrue(createIssue.to(waitForGitHubIndex).to(searchCanonicalGitHubIssue).to(resolveCanonicalGitHubIssue).to(upsertIssueLock).to(duplicateCreated
+      .onTrue(claimIssue.to(createIssue).to(waitForGitHubIndex).to(searchCanonicalGitHubIssue).to(resolveCanonicalGitHubIssue).to(upsertIssueLock).to(duplicateCreated
         .onTrue(closeDuplicateIssue.to(commentPlane).to(respondCreated))
         .onFalse(commentPlane.to(respondCreated))))
       .onFalse(respondDuplicate)))
@@ -2689,6 +2711,8 @@ const listPlaneBuildingStates = node({
   version: 4.4,
   config: {
     name: 'List Plane Building States',
+    alwaysOutputData: true,
+    continueOnFail: true,
     credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
     parameters: {
       method: 'GET',
