@@ -133,9 +133,10 @@ function buildEmailCategorizerRestWorkflow(name) {
     batch_limit: 25,
     tier3_confidence_threshold: 0.65,
     slack_exception_channel: '#workflow-builder',
-    audit_table: 'inbox_classifications',
-    manual_correction_table: 'inbox_classification_corrections',
-    workflow_version: name,
+  audit_table: 'inbox_classifications',
+  manual_correction_table: 'inbox_classification_corrections',
+  postgres_credential_name: 'Email Categorizer Postgres',
+  workflow_version: name,
     tier3_provider: 'dbhub_ollama',
     local_llm_base_url: 'http://100.66.221.24:11434',
     local_llm_model: 'qwen2.5:7b',
@@ -319,10 +320,43 @@ return [{
     local_llm_model: config.local_llm_model,
     messages: results.length,
     outlook_patch_status: 'disabled_dry_run',
-    audit_status: 'prepared_postgres_pending_credential',
+    audit_status: 'pending_postgres_insert',
     audit_table: config.audit_table,
     audit_rows: auditRows,
     results,
+  },
+}];
+`;
+
+  const prepareAuditInsertCode = String.raw`
+const response = $('Merge DBHub Ollama Result').item.json;
+const rows = response.audit_rows || [];
+if (!rows.length) {
+  return [{ json: { ...response, audit_status: 'skipped_no_audit_rows', audit_insert_count: 0 } }];
+}
+
+return rows.map((row) => ({
+  json: {
+    ...row,
+    original_categories: JSON.stringify(row.original_categories || []),
+  },
+}));
+`;
+
+  const restoreAuditResponseCode = String.raw`
+const inserted = $input.all();
+const response = $('Merge DBHub Ollama Result').item.json;
+const cleanedRows = (response.audit_rows || []).map((row) => ({
+  ...row,
+  original_categories: Array.isArray(row.original_categories) ? row.original_categories : [],
+}));
+
+return [{
+  json: {
+    ...response,
+    audit_status: 'inserted_postgres',
+    audit_insert_count: inserted.length,
+    audit_rows: cleanedRows,
   },
 }];
 `;
@@ -407,6 +441,49 @@ return [{
       },
       {
         parameters: {
+          mode: 'runOnceForAllItems',
+          language: 'javaScript',
+          jsCode: prepareAuditInsertCode,
+        },
+        id: 'prepare-audit-insert',
+        name: 'Prepare Audit Insert Rows',
+        type: 'n8n-nodes-base.code',
+        typeVersion: 2,
+        position: [1400, 120],
+      },
+      {
+        parameters: {
+          operation: 'insert',
+          schema: { __rl: true, mode: 'name', value: 'public' },
+          table: { __rl: true, mode: 'name', value: 'inbox_classifications' },
+          columns: { mappingMode: 'autoMapInputData', value: null },
+          options: {},
+        },
+        credentials: {
+          postgres: {
+            name: 'Email Categorizer Postgres',
+          },
+        },
+        id: 'insert-audit-rows',
+        name: 'Insert Audit Rows',
+        type: 'n8n-nodes-base.postgres',
+        typeVersion: 2.6,
+        position: [1680, 120],
+      },
+      {
+        parameters: {
+          mode: 'runOnceForAllItems',
+          language: 'javaScript',
+          jsCode: restoreAuditResponseCode,
+        },
+        id: 'restore-audit-response',
+        name: 'Restore Audit Response',
+        type: 'n8n-nodes-base.code',
+        typeVersion: 2,
+        position: [1960, 120],
+      },
+      {
+        parameters: {
           respondWith: 'json',
           responseBody: '={{ $json }}',
           options: { responseCode: 200 },
@@ -415,7 +492,7 @@ return [{
         name: 'Return Dry Run Result',
         type: 'n8n-nodes-base.respondToWebhook',
         typeVersion: 1.4,
-        position: [1400, 120],
+        position: [2240, 120],
       },
     ],
     connections: {
@@ -424,7 +501,10 @@ return [{
       CONFIG: { main: [[{ node: 'Prepare Dry Run Classification', type: 'main', index: 0 }]] },
       'Prepare Dry Run Classification': { main: [[{ node: 'Call DBHub Ollama', type: 'main', index: 0 }]] },
       'Call DBHub Ollama': { main: [[{ node: 'Merge DBHub Ollama Result', type: 'main', index: 0 }]] },
-      'Merge DBHub Ollama Result': { main: [[{ node: 'Return Dry Run Result', type: 'main', index: 0 }]] },
+      'Merge DBHub Ollama Result': { main: [[{ node: 'Prepare Audit Insert Rows', type: 'main', index: 0 }]] },
+      'Prepare Audit Insert Rows': { main: [[{ node: 'Insert Audit Rows', type: 'main', index: 0 }]] },
+      'Insert Audit Rows': { main: [[{ node: 'Restore Audit Response', type: 'main', index: 0 }]] },
+      'Restore Audit Response': { main: [[{ node: 'Return Dry Run Result', type: 'main', index: 0 }]] },
     },
     settings: { executionOrder: 'v1' },
   };

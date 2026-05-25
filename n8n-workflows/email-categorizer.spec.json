@@ -14,7 +14,7 @@
   "credentials": [
     "Microsoft Outlook OAuth2 credential in n8n",
     "DBHub direct Ollama endpoint/model for Tier 3 metadata classification",
-    "Postgres credential in n8n for classifier audit database",
+    "Postgres credential named Email Categorizer Postgres in n8n for classifier audit database",
     "Slack credential in n8n"
   ],
   "config": {
@@ -29,6 +29,7 @@
       "classifier_mount_path": "/data/classifier",
       "audit_table": "inbox_classifications",
       "manual_correction_table": "inbox_classification_corrections",
+      "postgres_credential_name": "Email Categorizer Postgres",
       "workflow_version": "published workflow name",
       "tier3_provider": "dbhub_ollama",
       "local_llm_base_url": "http://100.66.221.24:11434",
@@ -150,7 +151,7 @@
       "type": "Postgres",
       "name": "Insert Audit Row",
       "table": "inbox_classifications",
-      "notes": "Write a row for every attempted classification, including dry-run attempts and failures. Current REST fallback prepares audit_rows until the n8n Postgres credential is attached."
+      "notes": "Write a row for every attempted classification, including dry-run attempts and failures, using the n8n credential named Email Categorizer Postgres."
     },
     {
       "id": "manual_correction_review",
