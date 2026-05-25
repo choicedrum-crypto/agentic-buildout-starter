@@ -181,6 +181,12 @@ function addressOf(value) {
 function deterministic(message) {
   const subject = String(message.subject || '').toLowerCase();
   const sender = addressOf(message.from).toLowerCase();
+  if (
+    /github\.com$/.test(sender) &&
+    /\b(run failed|workflow failed|check suite failed|deploy after merge)\b/.test(subject)
+  ) {
+    return { quadrant: 'Q4', confidence: 0.86, tier_fired: 2, reason: 'GitHub Actions failure notification is low-value automation noise for this mailbox.' };
+  }
   if (/urgent|asap|past due|credit hold|escalat/.test(subject) || message.importance === 'high') {
     return { quadrant: 'Q1', confidence: 0.78, tier_fired: 2, reason: 'Urgent or high-importance metadata.' };
   }
@@ -2609,12 +2615,14 @@ function classify(message) {
   const sender = emailAddress(message.from).toLowerCase();
   const importance = String(message.importance || '').toLowerCase();
   const hasAttachments = Boolean(message.hasAttachments);
+  const githubActionsFailure = /github\.com$/.test(sender) && /\b(run failed|workflow failed|check suite failed|deploy after merge)\b/i.test(subject);
   const suspicious = /(wire|crypto|password|gift card|prize|urgent payment|bank|invoice)/i.test(subject) && (hasAttachments || /suspicious|unknown|external/.test(sender));
   const urgent = /(urgent|asap|today|escalation|blocked|down|outage|deadline)/i.test(subject) || importance === 'high';
   const planning = /(plan|planning|schedule|agenda|strategy|roadmap|next week|follow up)/i.test(subject);
   const delegate = /(delegate|assign|handoff|review requested|please review)/i.test(subject);
   const lowValue = /(newsletter|unsubscribe|promo|sale|digest|webinar)/i.test(subject);
 
+  if (githubActionsFailure) return { quadrant: 'Q4', tier_fired: 1, confidence: 0.86, reason: 'GitHub Actions failure notification is low-value automation noise for this mailbox.' };
   if (suspicious) return { quadrant: 'QR', tier_fired: 1, confidence: 0.9, reason: 'Suspicious financial/security language from external or attachment-bearing message.' };
   if (urgent) return { quadrant: 'Q1', tier_fired: 1, confidence: 0.82, reason: 'Urgent/high-importance metadata indicates do-now work.' };
   if (planning) return { quadrant: 'Q2', tier_fired: 1, confidence: 0.78, reason: 'Planning/scheduling language indicates important non-urgent work.' };
