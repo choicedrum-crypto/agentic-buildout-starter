@@ -29,8 +29,9 @@
       "classifier_mount_path": "/data/classifier",
       "audit_table": "inbox_classifications",
       "tier3_provider": "dbhub_local_llm",
-      "local_llm_base_url": "http://dbhub:11434",
-      "local_llm_model": "llama3.1:8b",
+      "local_llm_base_url": "http://100.66.221.24:4000",
+      "local_llm_model": "local-coder",
+      "local_llm_credential": "DBHub LiteLLM",
       "enable_tier3_local_llm": false,
       "outlook_category_map": {
         "Q1": "Q1: Do Now",
@@ -203,7 +204,7 @@
     "Outlook Q1/Q2/Q3/Q4/QR labels are discovered and mapped.",
     "Classifier directory is mounted read-only into the n8n container.",
     "Dedicated classifier Postgres is online and private to the Docker network.",
-    "DBHub local LLM endpoint and model are confirmed reachable from the n8n container.",
+    "DBHub LiteLLM endpoint is confirmed reachable from the n8n container, the `local-coder` model alias responds successfully, and the `DBHub LiteLLM` HTTP Header Auth credential exists in n8n.",
     "Dry-run audit rows are reviewed before live PATCH is enabled."
   ]
 }

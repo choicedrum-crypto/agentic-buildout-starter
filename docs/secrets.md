@@ -25,7 +25,7 @@ Create these in Hostinger n8n credentials:
 - Plane webhook secret for validating `X-Plane-Signature`. The current builder captures raw webhook bodies but leaves validation marked `pending-secret-credential` until the secret can be read from an n8n credential.
 - Slack bot token or Slack incoming webhook for review and status messages.
 - Microsoft Outlook OAuth2 credential for the email categorizer workflow.
-- DBHub local LLM endpoint/model for Tier 3 email classification. Prefer a private Docker-network URL reachable from n8n.
+- `DBHub LiteLLM` HTTP Header Auth credential for Tier 3 email classification. Use header name `Authorization` and value `Bearer <LiteLLM master key>`.
 - Dedicated classifier Postgres credential for email categorizer audit rows.
 
 After publishing workflow changes that add new Plane HTTP Request nodes, open each new node in n8n and confirm it is bound to the existing `Plane Main` HTTP Header Auth credential. The credential should send the Plane API key as the configured header value; do not paste the key into workflow node headers or `CONFIG`.
@@ -63,6 +63,7 @@ Email categorizer workflow CONFIG values:
 - `tier3_provider`, default `dbhub_local_llm`
 - `local_llm_base_url`
 - `local_llm_model`
+- `local_llm_credential`
 
 ## Secret Handling Rules
 
