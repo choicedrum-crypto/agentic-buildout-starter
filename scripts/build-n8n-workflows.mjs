@@ -2036,8 +2036,8 @@ let workflows = [
     workflowId: 'KeM4JZWK01qt532V',
     code: emailCategorizerWorkflow,
     description: 'Dry-run-first Outlook Eisenhower classifier workflow with safe test webhook and production activation gates.',
-    verifyContains: ['dbradley@tciallc.com', 'Get Unread Uncategorized Outlook Metadata', 'dbhub_ollama'],
-    skipMcpUpdate: true,
+    verifyContains: ['dbradley@tciallc.com', 'Get Unread Uncategorized Outlook Metadata', 'dbhub_ollama', 'DBHub Ollama Tier 3 Metadata Classifier'],
+    createAndSwap: true,
   },
 ];
 
@@ -2058,11 +2058,6 @@ await mcp('initialize', {
 });
 
 for (const item of workflows) {
-  if (item.skipMcpUpdate) {
-    console.log(`skipped ${item.name} (${item.workflowId}) - managed by create-and-swap until MCP update supports this workflow`);
-    continue;
-  }
-
   const validation = await tool('validate_workflow', { code: item.code });
   const validationContent = getStructuredContent(validation);
   if (validationContent.valid === false) {
@@ -2072,6 +2067,58 @@ for (const item of workflows) {
 
   if (validateOnly) {
     console.log(`validated ${item.name}`);
+    continue;
+  }
+
+  if (item.createAndSwap) {
+    const exact = await tool('search_workflows', { query: item.name, limit: 20 });
+    const matches = getStructuredContent(exact).data || [];
+    const existing =
+      matches.find((workflowItem) => workflowItem.id === item.workflowId) ||
+      matches.find((workflowItem) => workflowItem.name === item.name && workflowItem.active === true) ||
+      matches.find((workflowItem) => workflowItem.name === item.name);
+
+    const created = await tool('create_workflow_from_code', {
+      code: item.code,
+      name: item.name,
+      description: item.description,
+    });
+    const createdContent = getStructuredContent(created);
+    const createdWorkflowId = createdContent.workflow?.id || createdContent.workflowId || createdContent.id;
+    if (!createdWorkflowId) {
+      console.log(JSON.stringify(created, null, 2));
+      throw new Error(`Create-and-swap did not return a workflow ID for ${item.name}`);
+    }
+
+    if (item.verifyContains?.length) {
+      const details = await tool('get_workflow_details', { workflowId: createdWorkflowId });
+      const text = JSON.stringify(getStructuredContent(details));
+      const missing = item.verifyContains.filter((marker) => !text.includes(marker));
+      if (missing.length) {
+        await tool('archive_workflow', { workflowId: createdWorkflowId });
+        throw new Error(`Created ${item.name} candidate is missing expected markers: ${missing.join(', ')}`);
+      }
+    }
+
+    if (existing?.id) {
+      await tool('unpublish_workflow', { workflowId: existing.id });
+    }
+
+    try {
+      await tool('publish_workflow', { workflowId: createdWorkflowId });
+    } catch (error) {
+      if (existing?.id) {
+        await tool('publish_workflow', { workflowId: existing.id });
+      }
+      throw error;
+    }
+
+    if (existing?.id) {
+      await tool('archive_workflow', { workflowId: existing.id });
+      console.log(`archived previous ${item.name} (${existing.id})`);
+    }
+
+    console.log(`created-and-swapped ${item.name} (${createdWorkflowId})`);
     continue;
   }
 
