@@ -114,7 +114,7 @@ async function n8nApi(method, path, body) {
     headers: {
       accept: 'application/json',
       'content-type': 'application/json',
-      'X-N8N-API-KEY': env.N8N_API_KEY,
+      'X-N8N-API-KEY': env.N8N_REST_API_KEY || env.N8N_API_KEY,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
