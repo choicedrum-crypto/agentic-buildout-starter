@@ -339,8 +339,74 @@ if (!rows.length) {
 
 return rows.map((row) => ({
   json: {
-    ...row,
-    original_categories: JSON.stringify(row.original_categories || []),
+    query: \`
+      insert into inbox_classifications (
+        classified_at,
+        message_id,
+        internet_message_id,
+        subject,
+        sender,
+        sender_domain,
+        received_at,
+        importance,
+        has_attachments,
+        original_categories,
+        quadrant,
+        outlook_category_label,
+        tier_fired,
+        confidence,
+        rule_matched,
+        llm_rationale,
+        dry_run,
+        applied_ok,
+        workflow_version,
+        error_text
+      ) values (
+        $1::timestamptz,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7::timestamptz,
+        $8,
+        $9,
+        $10::jsonb,
+        $11,
+        $12,
+        $13,
+        $14,
+        $15,
+        $16,
+        $17,
+        $18,
+        $19,
+        $20
+      )
+      returning id
+    \`,
+    queryParams: [
+      row.classified_at,
+      row.message_id,
+      row.internet_message_id,
+      row.subject,
+      row.sender,
+      row.sender_domain,
+      row.received_at,
+      row.importance,
+      row.has_attachments,
+      JSON.stringify(row.original_categories || []),
+      row.quadrant,
+      row.outlook_category_label,
+      row.tier_fired,
+      row.confidence,
+      row.rule_matched,
+      row.llm_rationale,
+      row.dry_run,
+      row.applied_ok,
+      row.workflow_version,
+      row.error_text,
+    ],
   },
 }));
 `;
@@ -457,11 +523,11 @@ return [{
             },
             {
               parameters: {
-                operation: 'insert',
-                schema: { __rl: true, mode: 'name', value: 'public' },
-                table: { __rl: true, mode: 'name', value: 'inbox_classifications' },
-                columns: { mappingMode: 'autoMapInputData', value: null },
-                options: {},
+                operation: 'executeQuery',
+                query: '={{ $json.query }}',
+                options: {
+                  queryReplacement: '={{ $json.queryParams }}',
+                },
               },
               credentials: {
                 postgres: {
