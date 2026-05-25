@@ -575,7 +575,7 @@ const listPlaneReviewStates = node({
   version: 4.4,
   config: {
     name: 'List Plane Review States',
-    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    credentials: { httpHeaderAuth: { id: 'JJBkTRf9Qzy1nkXw', name: '${planeApiCredential}' } },
     parameters: {
       method: 'GET',
       url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.plane_project_id + "/states/" }}'),
