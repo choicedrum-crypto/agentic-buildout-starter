@@ -122,7 +122,6 @@
       "key": "plane_issue_id",
       "columns": [
         "plane_issue_id",
-        "plane_project_id",
         "plane_issue_key",
         "status",
         "github_issue_url",
