@@ -29,6 +29,8 @@ const endpoint = env.N8N_BASE_URL.replace(/\/$/, '');
 let id = 1;
 const maxMcpAttempts = Number(env.N8N_MCP_MAX_ATTEMPTS || 5);
 const mcpRetryBaseMs = Number(env.N8N_MCP_RETRY_BASE_MS || 2500);
+const workflowSearchAttempts = Number(env.N8N_WORKFLOW_SEARCH_ATTEMPTS || 6);
+const workflowSearchRetryMs = Number(env.N8N_WORKFLOW_SEARCH_RETRY_MS || 2500);
 
 function parseMcpResponse(text) {
   const match = text.match(/^data: (.*)$/m);
@@ -69,6 +71,23 @@ async function mcp(method, params = {}) {
 
 async function tool(name, args = {}) {
   return mcp('tools/call', { name, arguments: args });
+}
+
+async function findWorkflowByName(name) {
+  for (let attempt = 1; attempt <= workflowSearchAttempts; attempt += 1) {
+    const search = await tool('search_workflows', { query: name, limit: 20 });
+    const match = getStructuredContent(search).data?.find((workflowItem) => workflowItem.name === name && workflowItem.id);
+    if (match) {
+      return match;
+    }
+
+    if (attempt < workflowSearchAttempts) {
+      console.warn(`workflow ${name} not found after create on attempt ${attempt}/${workflowSearchAttempts}; retrying in ${workflowSearchRetryMs}ms`);
+      await new Promise((resolve) => setTimeout(resolve, workflowSearchRetryMs));
+    }
+  }
+
+  return undefined;
 }
 
 function getStructuredContent(result) {
@@ -2103,12 +2122,8 @@ for (const item of workflows) {
     const createdContent = getStructuredContent(created);
     let createdWorkflowId = createdContent.workflow?.id || createdContent.workflowId || createdContent.id;
     if (!createdWorkflowId) {
-      const afterCreate = await tool('search_workflows', { query: item.name, limit: 20 });
-      const afterMatches = getStructuredContent(afterCreate).data || [];
-      const createdCandidate = afterMatches.find(
-        (workflowItem) => workflowItem.name === publishedName && workflowItem.id,
-      );
-      createdWorkflowId = createdCandidate?.id;
+      console.warn(`create_workflow_from_code returned no workflow ID for ${publishedName}; searching by exact name`);
+      createdWorkflowId = (await findWorkflowByName(publishedName))?.id;
     }
     if (!createdWorkflowId) {
       console.log(JSON.stringify(created, null, 2));
