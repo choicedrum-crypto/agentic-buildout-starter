@@ -198,49 +198,56 @@ const baseResults = messages.map((message, index) => {
   };
 });
 
-let tier3Status = 'skipped';
-let tier3Error = null;
-let tier3Results = [];
 const needsTier3 = baseResults.filter((result) => result.confidence < config.tier3_confidence_threshold);
 
-if (config.enable_tier3_local_llm && needsTier3.length) {
+return [{
+  json: {
+    config,
+    mode: supplied.length ? 'provided_messages' : 'sample',
+    base_results: baseResults,
+    needs_tier3_count: needsTier3.length,
+    ollama_request: {
+      model: config.local_llm_model,
+      stream: false,
+      messages: [
+        {
+          role: 'system',
+          content: 'Classify email metadata into Q1, Q2, Q3, Q4, or QR. Return strict JSON only: {"results":[{"message_id":"...","quadrant":"Q1","confidence":0.0,"reason":"..."}]}',
+        },
+        {
+          role: 'user',
+          content: JSON.stringify({
+            allowed_quadrants: ['Q1', 'Q2', 'Q3', 'Q4', 'QR'],
+            messages: needsTier3.map((result) => ({
+              message_id: result.message_id,
+              subject: result.subject,
+              from: result.from,
+              receivedDateTime: result.receivedDateTime,
+              importance: result.importance,
+              hasAttachments: result.hasAttachments,
+            })),
+          }),
+        },
+      ],
+    },
+  },
+}];
+`;
+
+  const mergeOllamaCode = String.raw`
+const config = $('CONFIG').item.json.config || {};
+const prepared = $('Prepare Dry Run Classification').item.json;
+const baseResults = prepared.base_results || [];
+const needsTier3Count = Number(prepared.needs_tier3_count || 0);
+let tier3Status = needsTier3Count ? 'applied_local_llm' : 'skipped';
+let tier3Error = null;
+let tier3Results = [];
+
+if (needsTier3Count) {
   try {
-    const response = await fetch(config.local_llm_base_url + '/api/chat', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        model: config.local_llm_model,
-        stream: false,
-        messages: [
-          {
-            role: 'system',
-            content: 'Classify email metadata into Q1, Q2, Q3, Q4, or QR. Return strict JSON only: {"results":[{"message_id":"...","quadrant":"Q1","confidence":0.0,"reason":"..."}]}',
-          },
-          {
-            role: 'user',
-            content: JSON.stringify({
-              allowed_quadrants: ['Q1', 'Q2', 'Q3', 'Q4', 'QR'],
-              messages: needsTier3.map((result) => ({
-                message_id: result.message_id,
-                subject: result.subject,
-                from: result.from,
-                receivedDateTime: result.receivedDateTime,
-                importance: result.importance,
-                hasAttachments: result.hasAttachments,
-              })),
-            }),
-          },
-        ],
-      }),
-    });
-    if (!response.ok) {
-      throw new Error('Ollama returned HTTP ' + response.status);
-    }
-    const data = await response.json();
-    const raw = String(data.message?.content || '{}').trim();
-    const parsed = JSON.parse(raw);
+    const content = String($json.message?.content || '{}').trim();
+    const parsed = JSON.parse(content);
     tier3Results = Array.isArray(parsed.results) ? parsed.results : [];
-    tier3Status = 'applied_local_llm';
   } catch (error) {
     tier3Status = 'failed_local_llm';
     tier3Error = error.message;
@@ -269,7 +276,7 @@ return [{
   json: {
     ok: true,
     action: 'email_categorizer_dry_run',
-    mode: supplied.length ? 'provided_messages' : 'sample',
+    mode: prepared.mode,
     dry_run: config.dry_run,
     mailbox: config.ms_user_email,
     tier3_provider: config.tier3_provider,
@@ -329,10 +336,38 @@ return [{
           jsCode: classifyCode,
         },
         id: 'classify-with-dbhub-ollama',
-        name: 'DBHub Ollama Dry Run Classifier',
+        name: 'Prepare Dry Run Classification',
         type: 'n8n-nodes-base.code',
         typeVersion: 2,
         position: [560, 120],
+      },
+      {
+        parameters: {
+          method: 'POST',
+          url: '={{ $json.config.local_llm_base_url + "/api/chat" }}',
+          sendBody: true,
+          contentType: 'json',
+          specifyBody: 'json',
+          jsonBody: '={{ JSON.stringify($json.ollama_request) }}',
+          options: {},
+        },
+        id: 'call-dbhub-ollama',
+        name: 'Call DBHub Ollama',
+        type: 'n8n-nodes-base.httpRequest',
+        typeVersion: 4.4,
+        position: [840, 120],
+      },
+      {
+        parameters: {
+          mode: 'runOnceForAllItems',
+          language: 'javaScript',
+          jsCode: mergeOllamaCode,
+        },
+        id: 'merge-dbhub-ollama-result',
+        name: 'Merge DBHub Ollama Result',
+        type: 'n8n-nodes-base.code',
+        typeVersion: 2,
+        position: [1120, 120],
       },
       {
         parameters: {
@@ -344,14 +379,16 @@ return [{
         name: 'Return Dry Run Result',
         type: 'n8n-nodes-base.respondToWebhook',
         typeVersion: 1.4,
-        position: [840, 120],
+        position: [1400, 120],
       },
     ],
     connections: {
       'Manual Test Trigger': { main: [[{ node: 'CONFIG', type: 'main', index: 0 }]] },
       'Email Categorizer Test Webhook': { main: [[{ node: 'CONFIG', type: 'main', index: 0 }]] },
-      CONFIG: { main: [[{ node: 'DBHub Ollama Dry Run Classifier', type: 'main', index: 0 }]] },
-      'DBHub Ollama Dry Run Classifier': { main: [[{ node: 'Return Dry Run Result', type: 'main', index: 0 }]] },
+      CONFIG: { main: [[{ node: 'Prepare Dry Run Classification', type: 'main', index: 0 }]] },
+      'Prepare Dry Run Classification': { main: [[{ node: 'Call DBHub Ollama', type: 'main', index: 0 }]] },
+      'Call DBHub Ollama': { main: [[{ node: 'Merge DBHub Ollama Result', type: 'main', index: 0 }]] },
+      'Merge DBHub Ollama Result': { main: [[{ node: 'Return Dry Run Result', type: 'main', index: 0 }]] },
     },
     settings: { executionOrder: 'v1' },
   };
