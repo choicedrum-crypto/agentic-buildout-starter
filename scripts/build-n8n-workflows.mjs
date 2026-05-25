@@ -570,6 +570,47 @@ const updatePlaneReview = node({
   }
 });
 
+const listPlaneReviewStates = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'List Plane Review States',
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    parameters: {
+      method: 'GET',
+      url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.plane_project_id + "/states/" }}'),
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Accept', value: 'application/json' }] }
+    }
+  }
+});
+
+const resolvePlaneReviewState = node({
+  type: 'n8n-nodes-base.code',
+  version: 2,
+  config: {
+    name: 'Resolve Plane Review State',
+    parameters: {
+      mode: 'runOnceForEachItem',
+      language: 'javaScript',
+      jsCode: \`
+const original = $('Extract PR Review Context').item.json;
+const states = Array.isArray($json) ? $json : Array.isArray($json.results) ? $json.results : Array.isArray($json.data) ? $json.data : [];
+const review = states.find((state) => String(state.name || '').toLowerCase() === String(original.config.plane_review_state_name || 'Review').toLowerCase());
+return {
+  json: {
+    ...original,
+    plane_state_id: review?.id || review?.uuid || original.config.plane_review_state_id,
+    plane_state_name: review?.name || original.config.plane_review_state_name || 'Review',
+  },
+};
+\`
+    }
+  }
+});
+
 const commentPlaneReview = node({
   type: 'n8n-nodes-base.httpRequest',
   version: 4.4,
@@ -638,7 +679,7 @@ export default workflow('github-pr-slack-review', 'GitHub PR to Slack Review')
   .to(extract)
   .to(shouldNotify
     .onTrue(hasPlane
-      .onTrue(updatePlaneReview.to(commentPlaneReview).to(restoreReviewMessage).to(slackReview).to(respondNotified))
+      .onTrue(listPlaneReviewStates.to(resolvePlaneReviewState).to(updatePlaneReview).to(commentPlaneReview).to(restoreReviewMessage).to(slackReview).to(respondNotified))
       .onFalse(slackReview.to(respondNotified)))
     .onFalse(respondIgnored));
 `;
