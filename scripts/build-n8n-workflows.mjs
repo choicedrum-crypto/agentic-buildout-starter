@@ -409,6 +409,9 @@ return rows.map((row) => ({
   const restoreAuditResponseCode = String.raw`
 const inserted = $input.all();
 const response = $('Merge DBHub Ollama Result').item.json;
+const failed = inserted
+  .map((item) => item.json?.error || item.json?.message || item.json?.description)
+  .filter(Boolean);
 const cleanedRows = (response.audit_rows || []).map((row) => ({
   ...row,
   original_categories: Array.isArray(row.original_categories) ? row.original_categories : [],
@@ -417,8 +420,9 @@ const cleanedRows = (response.audit_rows || []).map((row) => ({
 return [{
   json: {
     ...response,
-    audit_status: 'inserted_postgres',
-    audit_insert_count: inserted.length,
+    audit_status: failed.length ? 'failed_postgres_insert' : 'inserted_postgres',
+    audit_insert_count: failed.length ? 0 : inserted.length,
+    audit_error: failed.length ? String(failed[0]).slice(0, 500) : '',
     audit_rows: cleanedRows,
   },
 }];
@@ -527,6 +531,7 @@ return [{
               },
               credentials: {
                 postgres: {
+                  id: 'ksnKn12JiFB34IUU',
                   name: 'Email Categorizer Postgres',
                 },
               },
@@ -535,6 +540,7 @@ return [{
               type: 'n8n-nodes-base.postgres',
               typeVersion: 2.6,
               position: [1680, 120],
+              continueOnFail: true,
             },
             {
               parameters: {
@@ -580,7 +586,7 @@ return [{
             'Merge DBHub Ollama Result': { main: [[{ node: 'Return Dry Run Result', type: 'main', index: 0 }]] },
           }),
     },
-    settings: { executionOrder: 'v1' },
+    settings: { executionOrder: 'v1', availableInMCP: true },
   };
 }
 
