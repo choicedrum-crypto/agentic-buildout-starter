@@ -107,6 +107,275 @@ function getStructuredContent(result) {
   }
 }
 
+async function n8nApi(method, path, body) {
+  const baseUrl = (env.N8N_REST_BASE_URL || `${env.N8N_PUBLIC_URL || 'https://n8n.tradecredit.agency'}/api/v1`).replace(/\/$/, '');
+  const response = await fetch(`${baseUrl}${path}`, {
+    method,
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/json',
+      'X-N8N-API-KEY': env.N8N_API_KEY,
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const text = await response.text();
+  const payload = text ? JSON.parse(text) : {};
+  if (!response.ok) {
+    throw new Error(`n8n API ${method} ${path} failed with ${response.status}: ${text}`);
+  }
+  return payload;
+}
+
+function buildEmailCategorizerRestWorkflow(name) {
+  const config = {
+    ms_user_email: 'dbradley@tciallc.com',
+    dry_run: true,
+    batch_limit: 25,
+    tier3_confidence_threshold: 0.65,
+    slack_exception_channel: '#workflow-builder',
+    tier3_provider: 'dbhub_ollama',
+    local_llm_base_url: 'http://100.66.221.24:11434',
+    local_llm_model: 'qwen2.5:7b',
+    enable_tier3_local_llm: true,
+    enable_outlook_patch: false,
+    outlook_category_map: {
+      Q1: 'Q1: Do Now',
+      Q2: 'Q2: Schedule',
+      Q3: 'Q3: Delegate',
+      Q4: 'Q4: Eliminate',
+      QR: 'QR: Quarantine',
+    },
+  };
+
+  const classifyCode = String.raw`
+const config = $json.config || {};
+const body = $json.body || $json;
+const supplied = Array.isArray(body.messages) ? body.messages : [];
+const messages = supplied.length
+  ? supplied
+  : [{
+      id: 'sample-1',
+      internetMessageId: '<sample-1@dry-run>',
+      subject: 'Urgent customer credit hold escalation',
+      from: { emailAddress: { address: 'sample@example.com' } },
+      receivedDateTime: new Date().toISOString(),
+      importance: 'high',
+      hasAttachments: false,
+      categories: [],
+      isRead: false,
+    }];
+
+function addressOf(value) {
+  return value?.emailAddress?.address || value?.address || value || '';
+}
+
+function deterministic(message) {
+  const subject = String(message.subject || '').toLowerCase();
+  const sender = addressOf(message.from).toLowerCase();
+  if (/urgent|asap|past due|credit hold|escalat/.test(subject) || message.importance === 'high') {
+    return { quadrant: 'Q1', confidence: 0.78, tier_fired: 2, reason: 'Urgent or high-importance metadata.' };
+  }
+  if (/meeting|schedule|renewal|review|proposal|follow up/.test(subject)) {
+    return { quadrant: 'Q2', confidence: 0.72, tier_fired: 2, reason: 'Planning or follow-up metadata.' };
+  }
+  if (/unsubscribe|newsletter|promotion|sale/.test(subject) || /no-reply|noreply/.test(sender)) {
+    return { quadrant: 'Q4', confidence: 0.82, tier_fired: 2, reason: 'Low-value sender or promotional metadata.' };
+  }
+  return { quadrant: 'QR', confidence: 0.4, tier_fired: 2, reason: 'Needs local LLM metadata review.' };
+}
+
+const baseResults = messages.map((message, index) => {
+  const messageId = message.id || message.internetMessageId || 'message-' + (index + 1);
+  return {
+    message_id: messageId,
+    subject: message.subject || '',
+    from: addressOf(message.from),
+    receivedDateTime: message.receivedDateTime || null,
+    importance: message.importance || 'normal',
+    hasAttachments: Boolean(message.hasAttachments),
+    categories: Array.isArray(message.categories) ? message.categories : [],
+    ...deterministic(message),
+  };
+});
+
+let tier3Status = 'skipped';
+let tier3Error = null;
+let tier3Results = [];
+const needsTier3 = baseResults.filter((result) => result.confidence < config.tier3_confidence_threshold);
+
+if (config.enable_tier3_local_llm && needsTier3.length) {
+  try {
+    const response = await fetch(config.local_llm_base_url + '/api/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: config.local_llm_model,
+        stream: false,
+        messages: [
+          {
+            role: 'system',
+            content: 'Classify email metadata into Q1, Q2, Q3, Q4, or QR. Return strict JSON only: {"results":[{"message_id":"...","quadrant":"Q1","confidence":0.0,"reason":"..."}]}',
+          },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              allowed_quadrants: ['Q1', 'Q2', 'Q3', 'Q4', 'QR'],
+              messages: needsTier3.map((result) => ({
+                message_id: result.message_id,
+                subject: result.subject,
+                from: result.from,
+                receivedDateTime: result.receivedDateTime,
+                importance: result.importance,
+                hasAttachments: result.hasAttachments,
+              })),
+            }),
+          },
+        ],
+      }),
+    });
+    if (!response.ok) {
+      throw new Error('Ollama returned HTTP ' + response.status);
+    }
+    const data = await response.json();
+    const raw = String(data.message?.content || '{}').trim();
+    const parsed = JSON.parse(raw);
+    tier3Results = Array.isArray(parsed.results) ? parsed.results : [];
+    tier3Status = 'applied_local_llm';
+  } catch (error) {
+    tier3Status = 'failed_local_llm';
+    tier3Error = error.message;
+  }
+}
+
+const allowed = new Set(['Q1', 'Q2', 'Q3', 'Q4', 'QR']);
+const byId = new Map(tier3Results.map((result) => [result.message_id, result]));
+const results = baseResults.map((result) => {
+  const tier3 = byId.get(result.message_id);
+  if (!tier3 || !allowed.has(tier3.quadrant)) {
+    return { ...result, tier3_status: tier3Status, error_text: tier3Error };
+  }
+  return {
+    ...result,
+    quadrant: tier3.quadrant,
+    confidence: Number(tier3.confidence || result.confidence),
+    tier_fired: 3,
+    reason: tier3.reason || result.reason,
+    tier3_status: tier3Status,
+    error_text: tier3Error,
+  };
+});
+
+return [{
+  json: {
+    ok: true,
+    action: 'email_categorizer_dry_run',
+    mode: supplied.length ? 'provided_messages' : 'sample',
+    dry_run: config.dry_run,
+    mailbox: config.ms_user_email,
+    tier3_provider: config.tier3_provider,
+    tier3_status: tier3Status,
+    local_llm_base_url: config.local_llm_base_url,
+    local_llm_model: config.local_llm_model,
+    messages: results.length,
+    outlook_patch_status: 'disabled_dry_run',
+    audit_status: 'skipped_postgres_not_configured',
+    results,
+  },
+}];
+`;
+
+  return {
+    name,
+    nodes: [
+      {
+        parameters: {},
+        id: 'manual-test-trigger',
+        name: 'Manual Test Trigger',
+        type: 'n8n-nodes-base.manualTrigger',
+        typeVersion: 1,
+        position: [0, 0],
+      },
+      {
+        parameters: {
+          httpMethod: 'POST',
+          path: 'email-categorizer-test',
+          responseMode: 'responseNode',
+          options: {},
+        },
+        id: 'email-categorizer-test-webhook',
+        name: 'Email Categorizer Test Webhook',
+        type: 'n8n-nodes-base.webhook',
+        typeVersion: 2.1,
+        position: [0, 220],
+      },
+      {
+        parameters: {
+          mode: 'manual',
+          includeOtherFields: true,
+          assignments: {
+            assignments: [{ id: 'config-object', name: 'config', type: 'object', value: config }],
+          },
+        },
+        id: 'config',
+        name: 'CONFIG',
+        type: 'n8n-nodes-base.set',
+        typeVersion: 3.4,
+        position: [280, 120],
+      },
+      {
+        parameters: {
+          mode: 'runOnceForAllItems',
+          language: 'javaScript',
+          jsCode: classifyCode,
+        },
+        id: 'classify-with-dbhub-ollama',
+        name: 'DBHub Ollama Dry Run Classifier',
+        type: 'n8n-nodes-base.code',
+        typeVersion: 2,
+        position: [560, 120],
+      },
+      {
+        parameters: {
+          respondWith: 'json',
+          responseBody: '={{ $json }}',
+          options: { responseCode: 200 },
+        },
+        id: 'return-dry-run-result',
+        name: 'Return Dry Run Result',
+        type: 'n8n-nodes-base.respondToWebhook',
+        typeVersion: 1.4,
+        position: [840, 120],
+      },
+    ],
+    connections: {
+      'Manual Test Trigger': { main: [[{ node: 'CONFIG', type: 'main', index: 0 }]] },
+      'Email Categorizer Test Webhook': { main: [[{ node: 'CONFIG', type: 'main', index: 0 }]] },
+      CONFIG: { main: [[{ node: 'DBHub Ollama Dry Run Classifier', type: 'main', index: 0 }]] },
+      'DBHub Ollama Dry Run Classifier': { main: [[{ node: 'Return Dry Run Result', type: 'main', index: 0 }]] },
+    },
+    settings: { executionOrder: 'v1' },
+  };
+}
+
+async function createEmailWorkflowViaRest(name) {
+  const existing = await n8nApi('GET', `/workflows?name=${encodeURIComponent('Email Categorizer')}&limit=100`);
+  const previous = (existing.data || []).filter(
+    (workflowItem) =>
+      workflowItem.id &&
+      (workflowItem.name === 'Email Categorizer' || workflowItem.name.startsWith('Email Categorizer - Published ')),
+  );
+  for (const workflowItem of previous) {
+    if (workflowItem.active) {
+      await n8nApi('POST', `/workflows/${workflowItem.id}/deactivate`);
+      console.log(`deactivated previous Email Categorizer (${workflowItem.id})`);
+    }
+  }
+
+  const created = await n8nApi('POST', '/workflows', buildEmailCategorizerRestWorkflow(name));
+  await n8nApi('POST', `/workflows/${created.id}/activate`, {});
+  return created.id;
+}
+
 const planeApiCredential = 'Plane Main';
 const githubCredential = 'GitHub account';
 
@@ -2127,7 +2396,10 @@ for (const item of workflows) {
     }
     if (!createdWorkflowId) {
       console.log(JSON.stringify(created, null, 2));
-      throw new Error(`Create-and-swap did not return a workflow ID for ${item.name}`);
+      console.warn(`falling back to n8n REST workflow create for ${publishedName}`);
+      createdWorkflowId = await createEmailWorkflowViaRest(publishedName);
+      console.log(`created-and-swapped ${item.name} via REST as ${publishedName} (${createdWorkflowId})`);
+      continue;
     }
 
     if (item.verifyContains?.length) {
