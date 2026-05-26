@@ -454,7 +454,7 @@ const response = $('Merge DBHub Ollama Result').item.json;
 const config = response.config || {};
 const results = Array.isArray(response.results) ? response.results : [];
 const isOutlookRun = String(response.mode || '').startsWith('outlook_metadata_');
-const patchEnabled = config.enable_outlook_patch === true || String(config.enable_outlook_patch).toLowerCase() === 'true';
+const patchEnabled = config.enable_outlook_patch !== false && String(config.enable_outlook_patch).toLowerCase() !== 'false';
 
 if (config.dry_run) {
   return [{ json: { ...response, patch_needed: false, patch_requests: [], outlook_patch_status: 'skipped_dry_run' } }];
