@@ -461,6 +461,7 @@ const results = Array.isArray(response.results) ? response.results : [];
 const auditRows = Array.isArray(response.audit_rows) ? response.audit_rows : [];
 const isOutlookRun = String(response.mode || '').startsWith('outlook_metadata_');
 const patchEnabled = config.enable_outlook_patch !== false && String(config.enable_outlook_patch).toLowerCase() !== 'false';
+const mailbox = response.mailbox || config.ms_user_email;
 
 if (config.dry_run) {
   return [{ json: { ...response, patch_needed: false, patch_requests: [], outlook_patch_status: 'skipped_dry_run' } }];
@@ -471,6 +472,9 @@ if (!patchEnabled) {
 if (!isOutlookRun) {
   return [{ json: { ...response, patch_needed: false, patch_requests: [], outlook_patch_status: 'skipped_not_outlook_run' } }];
 }
+if (!mailbox) {
+  return [{ json: { ...response, patch_needed: false, patch_requests: [], outlook_patch_status: 'failed_missing_mailbox' } }];
+}
 
 const requests = results
   .map((result, index) => {
@@ -480,7 +484,7 @@ const requests = results
     return {
       id: String(index),
       method: 'PATCH',
-      url: '/users/' + encodeURIComponent(config.ms_user_email) + '/messages/' + encodeURIComponent(result.message_id),
+      url: '/users/' + encodeURIComponent(mailbox) + '/messages/' + encodeURIComponent(result.message_id),
       headers: { 'Content-Type': 'application/json' },
       body: { categories },
     };
