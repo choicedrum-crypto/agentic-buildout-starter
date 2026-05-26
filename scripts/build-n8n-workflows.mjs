@@ -292,7 +292,11 @@ if (needsTier3Count) {
     }
     const jsonText = content.slice(jsonStart, jsonEnd + 1);
     const parsed = JSON.parse(jsonText);
-    tier3Results = Array.isArray(parsed.results) ? parsed.results : [];
+    tier3Results = Array.isArray(parsed.results)
+      ? parsed.results
+      : Array.isArray(parsed.classifications)
+        ? parsed.classifications
+        : [];
   } catch (error) {
     tier3Status = 'failed_local_llm';
     tier3Error = error.message;
@@ -300,14 +304,23 @@ if (needsTier3Count) {
 }
 
 const allowed = new Set(['Q1', 'Q2', 'Q3', 'Q4', 'QR']);
-const byKey = new Map(tier3Results.map((result) => [String(result.key || ''), result]));
+const byKey = new Map();
+for (const result of tier3Results) {
+  for (const key of [result.key, result.message_id, result.internet_message_id]) {
+    if (key) byKey.set(String(key), result);
+  }
+}
 const results = baseResults.map((result) => {
   if (result.confidence >= config.tier3_confidence_threshold || !needsTier3Count) {
     return { ...result, tier3_status: 'skipped', error_text: null };
   }
 
-  const tier3 = byKey.get(String(result.tier3_key || ''));
-  if (!tier3 || !allowed.has(tier3.quadrant)) {
+  const tier3 =
+    byKey.get(String(result.tier3_key || '')) ||
+    byKey.get(String(result.message_id || '')) ||
+    byKey.get(String(result.internetMessageId || ''));
+  const quadrant = String(tier3?.quadrant || '').toUpperCase();
+  if (!tier3 || !allowed.has(quadrant)) {
     const missingError = !tier3
       ? 'Ollama did not return a matching key for this message.'
       : 'Ollama returned an invalid quadrant for this message.';
@@ -319,7 +332,7 @@ const results = baseResults.map((result) => {
   }
   return {
     ...result,
-    quadrant: tier3.quadrant,
+    quadrant,
     confidence: Number(tier3.confidence || result.confidence),
     tier_fired: 3,
     reason: tier3.reason || result.reason,
@@ -441,11 +454,12 @@ const response = $('Merge DBHub Ollama Result').item.json;
 const config = response.config || {};
 const results = Array.isArray(response.results) ? response.results : [];
 const isOutlookRun = String(response.mode || '').startsWith('outlook_metadata_');
+const patchEnabled = config.enable_outlook_patch === true || String(config.enable_outlook_patch).toLowerCase() === 'true';
 
 if (config.dry_run) {
   return [{ json: { ...response, patch_needed: false, patch_requests: [], outlook_patch_status: 'skipped_dry_run' } }];
 }
-if (config.enable_outlook_patch !== true) {
+if (!patchEnabled) {
   return [{ json: { ...response, patch_needed: false, patch_requests: [], outlook_patch_status: 'disabled_until_enable_outlook_patch_true' } }];
 }
 if (!isOutlookRun) {
