@@ -130,8 +130,9 @@ function buildEmailCategorizerRestWorkflow(name) {
   const enablePostgresAudit = env.EMAIL_CATEGORIZER_ENABLE_POSTGRES_AUDIT === 'true';
   const config = {
     ms_user_email: 'dbradley@tciallc.com',
-    dry_run: true,
-    batch_limit: 25,
+    dry_run: false,
+    enable_schedule_processing: true,
+    batch_limit: 10,
     tier3_confidence_threshold: 0.65,
     slack_exception_channel: '#workflow-builder',
     audit_table: 'inbox_classifications',
@@ -143,7 +144,7 @@ function buildEmailCategorizerRestWorkflow(name) {
     local_llm_base_url: 'http://100.66.221.24:11434',
     local_llm_model: 'qwen2.5:7b',
     enable_tier3_local_llm: true,
-    enable_outlook_patch: false,
+    enable_outlook_patch: true,
     outlook_category_map: {
       Q1: 'Q1: Do Now',
       Q2: 'Q2: Schedule',
@@ -220,7 +221,7 @@ const needsTier3 = baseResults.filter((result) => result.confidence < config.tie
 return [{
   json: {
     config,
-    mode: supplied.length ? 'provided_messages' : outlookMessages.length ? 'outlook_metadata_dry_run' : 'sample',
+    mode: supplied.length ? 'provided_messages' : outlookMessages.length ? (config.dry_run ? 'outlook_metadata_dry_run' : 'outlook_metadata_live') : 'sample',
     fetched_unread_count: Number($json.fetched_unread_count || 0),
     skipped_already_categorized_count: Number($json.skipped_already_categorized_count || 0),
     base_results: baseResults,
@@ -264,7 +265,7 @@ const messages = raw
 return [{
   json: {
     ...configInput,
-    mode: 'outlook_metadata_dry_run',
+    mode: configInput.config?.dry_run ? 'outlook_metadata_dry_run' : 'outlook_metadata_live',
     fetched_unread_count: raw.length,
     skipped_already_categorized_count: raw.length - messages.length,
     messages,
@@ -327,7 +328,7 @@ const results = baseResults.map((result) => {
   };
 });
 const now = new Date().toISOString();
-const auditRows = results.map((result) => ({
+  const auditRows = results.map((result) => ({
   classified_at: now,
   message_id: result.message_id,
   internet_message_id: result.internetMessageId || null,
@@ -353,7 +354,7 @@ const auditRows = results.map((result) => ({
 return [{
   json: {
     ok: true,
-    action: 'email_categorizer_dry_run',
+    action: config.dry_run ? 'email_categorizer_dry_run' : 'email_categorizer_live',
     mode: prepared.mode,
     dry_run: config.dry_run,
     mailbox: config.ms_user_email,
@@ -364,7 +365,7 @@ return [{
     local_llm_base_url: config.local_llm_base_url,
     local_llm_model: config.local_llm_model,
     messages: results.length,
-    outlook_patch_status: 'disabled_dry_run',
+    outlook_patch_status: config.dry_run ? 'skipped_dry_run' : 'pending_outlook_patch',
     audit_status: config.enable_postgres_audit ? 'pending_postgres_insert' : 'prepared_postgres_pending_credential',
     audit_table: config.audit_table,
     audit_rows: auditRows,
@@ -377,7 +378,7 @@ return [{
 const response = $('Merge DBHub Ollama Result').item.json;
 const rows = response.audit_rows || [];
 if (!rows.length) {
-  return [{ json: { ...response, audit_status: 'skipped_no_audit_rows', audit_insert_count: 0 } }];
+  return [{ json: { response: { ...response, audit_status: 'skipped_no_audit_rows', audit_insert_count: 0 }, query: 'select null::int as id' } }];
 }
 
 function sql(value) {
@@ -435,9 +436,111 @@ return rows.map((row) => {
 });
 `;
 
+  const prepareLivePatchCode = String.raw`
+const response = $('Merge DBHub Ollama Result').item.json;
+const config = response.config || {};
+const results = Array.isArray(response.results) ? response.results : [];
+const isOutlookRun = String(response.mode || '').startsWith('outlook_metadata_');
+
+if (config.dry_run) {
+  return [{ json: { ...response, patch_needed: false, patch_requests: [], outlook_patch_status: 'skipped_dry_run' } }];
+}
+if (config.enable_outlook_patch !== true) {
+  return [{ json: { ...response, patch_needed: false, patch_requests: [], outlook_patch_status: 'disabled_until_enable_outlook_patch_true' } }];
+}
+if (!isOutlookRun) {
+  return [{ json: { ...response, patch_needed: false, patch_requests: [], outlook_patch_status: 'skipped_not_outlook_run' } }];
+}
+
+const requests = results
+  .map((result, index) => {
+    const label = config.outlook_category_map?.[result.quadrant] || result.outlook_category_label;
+    if (!result.message_id || !label || result.error_text) return null;
+    const categories = Array.from(new Set([...(Array.isArray(result.categories) ? result.categories : []), label]));
+    return {
+      id: String(index),
+      method: 'PATCH',
+      url: '/users/' + encodeURIComponent(config.ms_user_email) + '/messages/' + encodeURIComponent(result.message_id),
+      headers: { 'Content-Type': 'application/json' },
+      body: { categories },
+    };
+  })
+  .filter(Boolean);
+
+return [{
+  json: {
+    ...response,
+    patch_needed: requests.length > 0,
+    patch_requests: requests,
+    outlook_patch_status: requests.length ? 'pending_outlook_patch' : 'skipped_no_patch_candidates',
+    batch_body: { requests },
+  },
+}];
+`;
+
+  const skipLivePatchCode = String.raw`
+const response = $('Prepare Live Outlook Patch Batch').item.json;
+return [{ json: response }];
+`;
+
+  const mergeLivePatchCode = String.raw`
+const response = $('Prepare Live Outlook Patch Batch').item.json;
+const transportError = $json.error?.message || $json.message || $json.description || '';
+const graphResponses = Array.isArray($json.responses) ? $json.responses : [];
+const byId = new Map(graphResponses.map((item) => [String(item.id || ''), item]));
+let failures = transportError ? (response.patch_requests || []).length : 0;
+
+const results = (response.results || []).map((result, index) => {
+  if (transportError) {
+    return { ...result, applied_ok: false, error_text: transportError };
+  }
+  const patch = byId.get(String(index));
+  if (!patch) return { ...result, applied_ok: false };
+  const ok = Number(patch.status) >= 200 && Number(patch.status) < 300;
+  if (!ok) failures += 1;
+  return {
+    ...result,
+    applied_ok: ok,
+    error_text: ok ? result.error_text || null : (patch.body?.error?.message || 'Outlook PATCH failed with status ' + patch.status),
+  };
+});
+
+const auditRows = (response.audit_rows || []).map((row, index) => {
+  const result = results[index] || {};
+  return {
+    ...row,
+    applied_ok: Boolean(result.applied_ok),
+    error_text: result.error_text || row.error_text || null,
+  };
+});
+
+return [{
+  json: {
+    ...response,
+    results,
+    audit_rows: auditRows,
+    outlook_patch_status: failures ? 'failed_outlook_patch' : 'patched_outlook_categories',
+    outlook_patch_count: graphResponses.length - failures,
+    outlook_patch_error_count: failures,
+  },
+}];
+`;
+
+  const prepareAuditInsertCodeWithPatch = prepareAuditInsertCode.replace(
+    "const response = $('Merge DBHub Ollama Result').item.json;",
+    'const response = $json;',
+  ).replace(
+    'query: [',
+    'response,\n      query: [',
+  );
+
   const restoreAuditResponseCode = String.raw`
 const inserted = $input.all();
-const response = $('Merge DBHub Ollama Result').item.json;
+const preparedItems = $('Prepare Audit Insert Rows').all();
+const response = preparedItems[0]?.json?.response || {};
+if (!Array.isArray(response.audit_rows) || !response.audit_rows.length) {
+  return [{ json: { ...response, audit_status: 'skipped_no_audit_rows', audit_insert_count: 0, audit_error: '' } }];
+}
 const failed = inserted
   .map((item) => item.json?.error || item.json?.message || item.json?.description)
   .filter(Boolean);
@@ -483,6 +586,19 @@ return [{
       },
       {
         parameters: {
+          rule: {
+            interval: [{ field: 'minutes', minutesInterval: 30 }],
+          },
+        },
+        id: 'email-categorizer-live-schedule',
+        name: 'Email Categorizer Live Schedule',
+        type: 'n8n-nodes-base.scheduleTrigger',
+        typeVersion: 1.2,
+        position: [0, -120],
+        disabled: !config.enable_schedule_processing,
+      },
+      {
+        parameters: {
           mode: 'manual',
           includeOtherFields: true,
           assignments: {
@@ -501,7 +617,7 @@ return [{
             options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
             conditions: [
               {
-                leftValue: '={{ String(Array.isArray($json.body?.messages) || $json.body?.use_outlook !== true) }}',
+                leftValue: '={{ String(Array.isArray($json.body?.messages) || (Object.prototype.hasOwnProperty.call($json.body || {}, "use_outlook") && $json.body.use_outlook !== true)) }}',
                 operator: { type: 'string', operation: 'equals' },
                 rightValue: 'true',
               },
@@ -589,19 +705,102 @@ return [{
         typeVersion: 2,
         position: [1960, 120],
       },
+      {
+        parameters: {
+          mode: 'runOnceForAllItems',
+          language: 'javaScript',
+          jsCode: prepareLivePatchCode,
+        },
+        id: 'prepare-live-outlook-patch-batch',
+        name: 'Prepare Live Outlook Patch Batch',
+        type: 'n8n-nodes-base.code',
+        typeVersion: 2,
+        position: [2240, 120],
+      },
+      {
+        parameters: {
+          conditions: {
+            options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
+            conditions: [
+              {
+                leftValue: '={{ String($json.patch_needed === true) }}',
+                operator: { type: 'string', operation: 'equals' },
+                rightValue: 'true',
+              },
+            ],
+            combinator: 'and',
+          },
+        },
+        id: 'live-outlook-patch-needed',
+        name: 'Live Outlook Patch Needed?',
+        type: 'n8n-nodes-base.if',
+        typeVersion: 2.3,
+        position: [2520, 120],
+      },
+      {
+        parameters: {
+          method: 'POST',
+          url: 'https://graph.microsoft.com/v1.0/$batch',
+          authentication: 'predefinedCredentialType',
+          nodeCredentialType: 'microsoftOutlookOAuth2Api',
+          sendHeaders: true,
+          headerParameters: { parameters: [{ name: 'Accept', value: 'application/json' }] },
+          sendBody: true,
+          contentType: 'json',
+          specifyBody: 'json',
+          jsonBody: '={{ JSON.stringify($json.batch_body) }}',
+          options: {},
+        },
+        credentials: {
+          microsoftOutlookOAuth2Api: {
+            id: 'UPbI07LdV7IQhWzs',
+            name: 'Microsoft Outlook account',
+          },
+        },
+        id: 'patch-outlook-categories',
+        name: 'Patch Outlook Categories',
+        type: 'n8n-nodes-base.httpRequest',
+        typeVersion: 4.4,
+        position: [2800, 40],
+        continueOnFail: true,
+      },
+      {
+        parameters: {
+          mode: 'runOnceForAllItems',
+          language: 'javaScript',
+          jsCode: mergeLivePatchCode,
+        },
+        id: 'merge-live-outlook-patch-result',
+        name: 'Merge Live Outlook Patch Result',
+        type: 'n8n-nodes-base.code',
+        typeVersion: 2,
+        position: [3080, 40],
+      },
+      {
+        parameters: {
+          mode: 'runOnceForAllItems',
+          language: 'javaScript',
+          jsCode: skipLivePatchCode,
+        },
+        id: 'merge-skipped-outlook-patch-result',
+        name: 'Merge Skipped Outlook Patch Result',
+        type: 'n8n-nodes-base.code',
+        typeVersion: 2,
+        position: [3080, 220],
+      },
       ...(enablePostgresAudit
         ? [
             {
               parameters: {
                 mode: 'runOnceForAllItems',
                 language: 'javaScript',
-                jsCode: prepareAuditInsertCode,
+                jsCode: prepareAuditInsertCodeWithPatch,
               },
               id: 'prepare-audit-insert',
               name: 'Prepare Audit Insert Rows',
               type: 'n8n-nodes-base.code',
               typeVersion: 2,
-              position: [2240, 120],
+              position: [3360, 120],
             },
             {
               parameters: {
@@ -622,7 +821,7 @@ return [{
               name: 'Insert Audit Rows',
               type: 'n8n-nodes-base.postgres',
               typeVersion: 2.6,
-              position: [2520, 120],
+              position: [3640, 120],
               continueOnFail: true,
             },
             {
@@ -635,7 +834,7 @@ return [{
               name: 'Restore Audit Response',
               type: 'n8n-nodes-base.code',
               typeVersion: 2,
-              position: [2800, 120],
+              position: [3920, 120],
             },
           ]
         : []),
@@ -646,15 +845,16 @@ return [{
           options: { responseCode: 200 },
         },
         id: 'return-dry-run-result',
-        name: 'Return Dry Run Result',
+        name: 'Return Email Categorizer Result',
         type: 'n8n-nodes-base.respondToWebhook',
         typeVersion: 1.4,
-        position: [3080, 120],
+        position: [4200, 120],
       },
     ],
     connections: {
       'Manual Test Trigger': { main: [[{ node: 'CONFIG', type: 'main', index: 0 }]] },
       'Email Categorizer Test Webhook': { main: [[{ node: 'CONFIG', type: 'main', index: 0 }]] },
+      'Email Categorizer Live Schedule': { main: [[{ node: 'CONFIG', type: 'main', index: 0 }]] },
       CONFIG: { main: [[{ node: 'Use Provided Or Sample?', type: 'main', index: 0 }]] },
       'Use Provided Or Sample?': {
         main: [
@@ -666,15 +866,26 @@ return [{
       'Normalize Outlook Metadata': { main: [[{ node: 'Prepare Dry Run Classification', type: 'main', index: 0 }]] },
       'Prepare Dry Run Classification': { main: [[{ node: 'Call DBHub Ollama', type: 'main', index: 0 }]] },
       'Call DBHub Ollama': { main: [[{ node: 'Merge DBHub Ollama Result', type: 'main', index: 0 }]] },
+      'Merge DBHub Ollama Result': { main: [[{ node: 'Prepare Live Outlook Patch Batch', type: 'main', index: 0 }]] },
+      'Prepare Live Outlook Patch Batch': { main: [[{ node: 'Live Outlook Patch Needed?', type: 'main', index: 0 }]] },
+      'Live Outlook Patch Needed?': {
+        main: [
+          [{ node: 'Patch Outlook Categories', type: 'main', index: 0 }],
+          [{ node: 'Merge Skipped Outlook Patch Result', type: 'main', index: 0 }],
+        ],
+      },
+      'Patch Outlook Categories': { main: [[{ node: 'Merge Live Outlook Patch Result', type: 'main', index: 0 }]] },
       ...(enablePostgresAudit
         ? {
-            'Merge DBHub Ollama Result': { main: [[{ node: 'Prepare Audit Insert Rows', type: 'main', index: 0 }]] },
+            'Merge Live Outlook Patch Result': { main: [[{ node: 'Prepare Audit Insert Rows', type: 'main', index: 0 }]] },
+            'Merge Skipped Outlook Patch Result': { main: [[{ node: 'Prepare Audit Insert Rows', type: 'main', index: 0 }]] },
             'Prepare Audit Insert Rows': { main: [[{ node: 'Insert Audit Rows', type: 'main', index: 0 }]] },
             'Insert Audit Rows': { main: [[{ node: 'Restore Audit Response', type: 'main', index: 0 }]] },
-            'Restore Audit Response': { main: [[{ node: 'Return Dry Run Result', type: 'main', index: 0 }]] },
+            'Restore Audit Response': { main: [[{ node: 'Return Email Categorizer Result', type: 'main', index: 0 }]] },
           }
         : {
-            'Merge DBHub Ollama Result': { main: [[{ node: 'Return Dry Run Result', type: 'main', index: 0 }]] },
+            'Merge Live Outlook Patch Result': { main: [[{ node: 'Return Email Categorizer Result', type: 'main', index: 0 }]] },
+            'Merge Skipped Outlook Patch Result': { main: [[{ node: 'Return Email Categorizer Result', type: 'main', index: 0 }]] },
           }),
     },
     settings: { executionOrder: 'v1', availableInMCP: true },
