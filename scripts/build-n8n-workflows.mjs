@@ -679,6 +679,26 @@ return [{
       },
       {
         parameters: {
+          conditions: {
+            options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
+            conditions: [
+              {
+                leftValue: '={{ String(Number($json.needs_tier3_count || 0) > 0 && $json.config.enable_tier3_local_llm === true) }}',
+                operator: { type: 'string', operation: 'equals' },
+                rightValue: 'true',
+              },
+            ],
+            combinator: 'and',
+          },
+        },
+        id: 'needs-dbhub-ollama-tier3',
+        name: 'Needs DBHub Ollama Tier 3?',
+        type: 'n8n-nodes-base.if',
+        typeVersion: 2.3,
+        position: [1680, 120],
+      },
+      {
+        parameters: {
           method: 'POST',
           url: '={{ $json.config.local_llm_base_url + "/api/chat" }}',
           sendBody: true,
@@ -691,7 +711,8 @@ return [{
         name: 'Call DBHub Ollama',
         type: 'n8n-nodes-base.httpRequest',
         typeVersion: 4.4,
-        position: [1680, 120],
+        position: [1960, 40],
+        continueOnFail: true,
       },
       {
         parameters: {
@@ -703,7 +724,7 @@ return [{
         name: 'Merge DBHub Ollama Result',
         type: 'n8n-nodes-base.code',
         typeVersion: 2,
-        position: [1960, 120],
+        position: [2240, 120],
       },
       {
         parameters: {
@@ -715,7 +736,7 @@ return [{
         name: 'Prepare Live Outlook Patch Batch',
         type: 'n8n-nodes-base.code',
         typeVersion: 2,
-        position: [2240, 120],
+        position: [2520, 120],
       },
       {
         parameters: {
@@ -735,7 +756,7 @@ return [{
         name: 'Live Outlook Patch Needed?',
         type: 'n8n-nodes-base.if',
         typeVersion: 2.3,
-        position: [2520, 120],
+        position: [2800, 120],
       },
       {
         parameters: {
@@ -761,7 +782,7 @@ return [{
         name: 'Patch Outlook Categories',
         type: 'n8n-nodes-base.httpRequest',
         typeVersion: 4.4,
-        position: [2800, 40],
+        position: [3080, 40],
         continueOnFail: true,
       },
       {
@@ -774,7 +795,7 @@ return [{
         name: 'Merge Live Outlook Patch Result',
         type: 'n8n-nodes-base.code',
         typeVersion: 2,
-        position: [3080, 40],
+        position: [3360, 40],
       },
       {
         parameters: {
@@ -786,7 +807,7 @@ return [{
         name: 'Merge Skipped Outlook Patch Result',
         type: 'n8n-nodes-base.code',
         typeVersion: 2,
-        position: [3080, 220],
+        position: [3360, 220],
       },
       ...(enablePostgresAudit
         ? [
@@ -800,7 +821,7 @@ return [{
               name: 'Prepare Audit Insert Rows',
               type: 'n8n-nodes-base.code',
               typeVersion: 2,
-              position: [3360, 120],
+              position: [3640, 120],
             },
             {
               parameters: {
@@ -821,7 +842,7 @@ return [{
               name: 'Insert Audit Rows',
               type: 'n8n-nodes-base.postgres',
               typeVersion: 2.6,
-              position: [3640, 120],
+              position: [3920, 120],
               continueOnFail: true,
             },
             {
@@ -834,7 +855,7 @@ return [{
               name: 'Restore Audit Response',
               type: 'n8n-nodes-base.code',
               typeVersion: 2,
-              position: [3920, 120],
+              position: [4200, 120],
             },
           ]
         : []),
@@ -848,7 +869,7 @@ return [{
         name: 'Return Email Categorizer Result',
         type: 'n8n-nodes-base.respondToWebhook',
         typeVersion: 1.4,
-        position: [4200, 120],
+        position: [4480, 120],
       },
     ],
     connections: {
@@ -864,7 +885,13 @@ return [{
       },
       'Get Unread Outlook Metadata': { main: [[{ node: 'Normalize Outlook Metadata', type: 'main', index: 0 }]] },
       'Normalize Outlook Metadata': { main: [[{ node: 'Prepare Dry Run Classification', type: 'main', index: 0 }]] },
-      'Prepare Dry Run Classification': { main: [[{ node: 'Call DBHub Ollama', type: 'main', index: 0 }]] },
+      'Prepare Dry Run Classification': { main: [[{ node: 'Needs DBHub Ollama Tier 3?', type: 'main', index: 0 }]] },
+      'Needs DBHub Ollama Tier 3?': {
+        main: [
+          [{ node: 'Call DBHub Ollama', type: 'main', index: 0 }],
+          [{ node: 'Merge DBHub Ollama Result', type: 'main', index: 0 }],
+        ],
+      },
       'Call DBHub Ollama': { main: [[{ node: 'Merge DBHub Ollama Result', type: 'main', index: 0 }]] },
       'Merge DBHub Ollama Result': { main: [[{ node: 'Prepare Live Outlook Patch Batch', type: 'main', index: 0 }]] },
       'Prepare Live Outlook Patch Batch': { main: [[{ node: 'Live Outlook Patch Needed?', type: 'main', index: 0 }]] },
