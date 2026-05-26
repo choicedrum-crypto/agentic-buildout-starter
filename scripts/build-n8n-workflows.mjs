@@ -182,20 +182,21 @@ function addressOf(value) {
 function deterministic(message) {
   const subject = String(message.subject || '').toLowerCase();
   const sender = addressOf(message.from).toLowerCase();
+  const domain = sender.split('@').pop() || '';
   if (
     /github\.com$/.test(sender) &&
     /\b(run failed|workflow failed|check suite failed|deploy after merge)\b/.test(subject)
   ) {
     return { quadrant: 'Q4', confidence: 0.86, tier_fired: 2, reason: 'GitHub Actions failure notification is low-value automation noise for this mailbox.' };
   }
-  if (/urgent|asap|past due|credit hold|escalat/.test(subject) || message.importance === 'high') {
-    return { quadrant: 'Q1', confidence: 0.78, tier_fired: 2, reason: 'Urgent or high-importance metadata.' };
+  if (/(urgent|asap|past due|overdue|suspension|credit hold|escalat|blocked|outage|deadline)/.test(subject) || message.importance === 'high') {
+    return { quadrant: 'Q1', confidence: 0.84, tier_fired: 2, reason: 'Urgent, blocked, overdue, or high-importance metadata.' };
   }
-  if (/meeting|schedule|renewal|review|proposal|follow up/.test(subject)) {
-    return { quadrant: 'Q2', confidence: 0.72, tier_fired: 2, reason: 'Planning or follow-up metadata.' };
+  if (/(autopay|payment reminder|payment|invoice|statement|money|renewal|appointment|coverage|credit insurance|proposal|follow up|review|meeting|schedule|agenda|planning|tristar)/.test(subject)) {
+    return { quadrant: 'Q2', confidence: 0.8, tier_fired: 2, reason: 'Financial, appointment, planning, or follow-up metadata worth scheduling.' };
   }
-  if (/unsubscribe|newsletter|promotion|sale/.test(subject) || /no-reply|noreply/.test(sender)) {
-    return { quadrant: 'Q4', confidence: 0.82, tier_fired: 2, reason: 'Low-value sender or promotional metadata.' };
+  if (/(property sold|neighborhood alert|plex pass|newsletter|unsubscribe|promotion|promo|sale|digest|webinar)/.test(subject) || /(neighborhoodalerts\.com|m\.plex\.tv)$/.test(domain) || /no-reply|noreply/.test(sender)) {
+    return { quadrant: 'Q4', confidence: 0.84, tier_fired: 2, reason: 'Low-value alert, pricing, digest, or promotional metadata.' };
   }
   return { quadrant: 'QR', confidence: 0.4, tier_fired: 2, reason: 'Needs local LLM metadata review.' };
 }
