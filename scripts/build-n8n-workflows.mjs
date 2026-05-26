@@ -453,6 +453,7 @@ return rows.map((row) => {
 const response = $('Merge DBHub Ollama Result').item.json;
 const config = response.config || {};
 const results = Array.isArray(response.results) ? response.results : [];
+const auditRows = Array.isArray(response.audit_rows) ? response.audit_rows : [];
 const isOutlookRun = String(response.mode || '').startsWith('outlook_metadata_');
 const patchEnabled = config.enable_outlook_patch !== false && String(config.enable_outlook_patch).toLowerCase() !== 'false';
 
@@ -468,7 +469,7 @@ if (!isOutlookRun) {
 
 const requests = results
   .map((result, index) => {
-    const label = config.outlook_category_map?.[result.quadrant] || result.outlook_category_label;
+    const label = config.outlook_category_map?.[result.quadrant] || result.outlook_category_label || auditRows[index]?.outlook_category_label;
     if (!result.message_id || !label || result.error_text) return null;
     const categories = Array.from(new Set([...(Array.isArray(result.categories) ? result.categories : []), label]));
     return {
