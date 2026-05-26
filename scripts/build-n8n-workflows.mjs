@@ -617,7 +617,7 @@ return [{
             options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
             conditions: [
               {
-                leftValue: '={{ String(Array.isArray($json.body?.messages) || (Object.prototype.hasOwnProperty.call($json.body || {}, "use_outlook") && $json.body.use_outlook !== true)) }}',
+                leftValue: '={{ String(Array.isArray($json.body?.messages) || $json.body?.use_outlook === false) }}',
                 operator: { type: 'string', operation: 'equals' },
                 rightValue: 'true',
               },
