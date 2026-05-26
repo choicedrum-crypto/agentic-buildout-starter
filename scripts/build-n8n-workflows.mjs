@@ -310,15 +310,20 @@ for (const result of tier3Results) {
     if (key) byKey.set(String(key), result);
   }
 }
+let tier3OrderIndex = 0;
 const results = baseResults.map((result) => {
   if (result.confidence >= config.tier3_confidence_threshold || !needsTier3Count) {
     return { ...result, tier3_status: 'skipped', error_text: null };
   }
 
-  const tier3 =
+  let tier3 =
     byKey.get(String(result.tier3_key || '')) ||
     byKey.get(String(result.message_id || '')) ||
     byKey.get(String(result.internetMessageId || ''));
+  if (!tier3 && tier3Results.length === needsTier3Count) {
+    tier3 = tier3Results[tier3OrderIndex];
+  }
+  tier3OrderIndex += 1;
   const quadrant = String(tier3?.quadrant || '').toUpperCase();
   if (!tier3 || !allowed.has(quadrant)) {
     const missingError = !tier3
