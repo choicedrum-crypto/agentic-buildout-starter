@@ -192,10 +192,10 @@ function deterministic(message) {
   if (/(urgent|asap|past due|overdue|suspension|credit hold|escalat|blocked|outage|deadline)/.test(subject) || message.importance === 'high') {
     return { quadrant: 'Q1', confidence: 0.84, tier_fired: 2, reason: 'Urgent, blocked, overdue, or high-importance metadata.' };
   }
-  if (/(autopay|payment reminder|payment|invoice|statement|money|renewal|appointment|coverage|credit insurance|proposal|follow up|review|meeting|schedule|agenda|planning|tristar)/.test(subject)) {
-    return { quadrant: 'Q2', confidence: 0.8, tier_fired: 2, reason: 'Financial, appointment, planning, or follow-up metadata worth scheduling.' };
+  if (/(indication request|policy|euler hermes|atradius|aig|liberty|ach set ?up|monthly reporting|sales declaration|approved coverage|coverage|credit insurance|proposal|follow up|review|tristar|payment|invoice|statement|autopay|payment reminder|money|renewal|appointment|meeting|schedule|agenda|planning)/.test(subject) || /(atradius\.com|aig\.com|libertymutual\.com|vpracingfuels\.com)$/.test(domain)) {
+    return { quadrant: 'Q2', confidence: 0.82, tier_fired: 2, reason: 'Business credit, insurance, finance, appointment, or follow-up metadata worth scheduling.' };
   }
-  if (/(property sold|neighborhood alert|plex pass|newsletter|unsubscribe|promotion|promo|sale|digest|webinar)/.test(subject) || /(neighborhoodalerts\.com|m\.plex\.tv)$/.test(domain) || /no-reply|noreply/.test(sender)) {
+  if (/(automatic reply|property sold|neighborhood alert|conference|now live|cooler, calmer home|plex pass|newsletter|unsubscribe|promotion|promo|discount|digest|webinar)/.test(subject) || /(neighborhoodalerts\.com|m\.plex\.tv|gie\.net|connect\.fergusonhome\.com|email\.openai\.com|amazon\.com|acquisition\.com)$/.test(domain) || /no-reply|noreply/.test(sender)) {
     return { quadrant: 'Q4', confidence: 0.84, tier_fired: 2, reason: 'Low-value alert, pricing, digest, or promotional metadata.' };
   }
   return { quadrant: 'QR', confidence: 0.4, tier_fired: 2, reason: 'Needs local LLM metadata review.' };
@@ -293,11 +293,23 @@ if (needsTier3Count) {
     }
     const jsonText = content.slice(jsonStart, jsonEnd + 1);
     const parsed = JSON.parse(jsonText);
-    tier3Results = Array.isArray(parsed.results)
-      ? parsed.results
-      : Array.isArray(parsed.classifications)
-        ? parsed.classifications
-        : [];
+    const arrayCandidate =
+      parsed.results ||
+      parsed.classifications ||
+      parsed.result ||
+      parsed.classification ||
+      parsed.messages ||
+      parsed.items;
+    if (Array.isArray(arrayCandidate)) {
+      tier3Results = arrayCandidate;
+    } else if (arrayCandidate && typeof arrayCandidate === 'object') {
+      tier3Results = Object.entries(arrayCandidate).map(([key, value]) => ({ key, ...(value || {}) }));
+    } else if (parsed && typeof parsed === 'object') {
+      const objectRows = Object.entries(parsed)
+        .filter(([, value]) => value && typeof value === 'object' && (value.quadrant || value.category))
+        .map(([key, value]) => ({ key, ...value }));
+      tier3Results = objectRows.length ? objectRows : [];
+    }
   } catch (error) {
     tier3Status = 'failed_local_llm';
     tier3Error = error.message;
@@ -325,7 +337,7 @@ const results = baseResults.map((result) => {
     tier3 = tier3Results[tier3OrderIndex];
   }
   tier3OrderIndex += 1;
-  const quadrant = String(tier3?.quadrant || '').toUpperCase();
+  const quadrant = String(tier3?.quadrant || tier3?.category || tier3?.label || '').toUpperCase().replace(/^.*(Q[1-4]|QR).*$/, '$1');
   if (!tier3 || !allowed.has(quadrant)) {
     const missingError = !tier3
       ? 'Ollama did not return a matching key for this message.'
