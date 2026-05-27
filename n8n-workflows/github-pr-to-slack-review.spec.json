@@ -2,7 +2,7 @@
   "name": "GitHub PR to Slack Review",
   "version": 1,
   "runtime": "Hostinger n8n",
-  "purpose": "Move linked Plane work to Review and notify Slack when a PR is opened, synchronized, or reopened, including the GitHub PR merge link and linked Plane context.",
+  "purpose": "Move linked Plane work to Review and send the single human approval notification when an agent PR is ready.",
   "trigger": {
     "type": "webhook",
     "source": "GitHub",
@@ -71,8 +71,15 @@
         "pr_body": "pull_request.body",
         "issue_url": "First GitHub issue URL found in PR body or branch metadata",
         "plane_url": "First Plane URL found in PR or linked issue body",
-        "plane_issue_id": "Plane issue UUID parsed from PR body"
+        "plane_issue_id": "Plane issue UUID parsed from PR body",
+        "plane_project_id": "Plane project UUID parsed from PR body or linked issue body"
       }
+    },
+    {
+      "id": "resolve_review_state",
+      "type": "HTTP Request + Code",
+      "name": "Resolve Plane Review State",
+      "request": "List Plane states for plane_project_id and choose the state named Review."
     },
     {
       "id": "update_plane_review_state",
@@ -107,7 +114,7 @@
     {
       "id": "send_slack_review_message",
       "type": "Slack",
-      "name": "Send PR review message",
+      "name": "Send Slack approval message",
       "message_template_ref": "templates.slack_review_message",
       "on_error": "Respond 502 so GitHub webhook delivery can be retried."
     },
@@ -119,13 +126,14 @@
     }
   ],
   "templates": {
-    "slack_review_message": "Build ready for review\nPlane: {{plane_url}}\nGitHub Issue: {{issue_url}}\nPR / Merge Link: {{pr_merge_link}}\nChecks: {{check_status}}\nSummary: {{pr_title}}\nRisks: {{risk_summary}}\nNext step: review and merge in GitHub."
+    "slack_review_message": "Approval needed\nPlane: {{plane_url}}\nGitHub Issue: {{issue_url}}\nPR: {{pr_merge_link}}\nChecks: {{check_status}}\nSummary: {{pr_title}}\nDecision: Approve, Request Changes, or Block from Slack."
   },
   "safe_failure_handling": [
     "Reject requests with invalid GitHub signatures.",
     "Do not block Slack notification if checks are not available yet; mark checks as pending or unavailable.",
     "Do not expose webhook secrets in failed workflow logs.",
     "Use GitHub webhook retries for transient Slack failures.",
-    "Keep Plane update optional so the review notification still reaches Slack."
+    "Keep Plane update optional so the approval notification still reaches Slack.",
+    "Send only one routine approval notification per ready PR revision."
   ]
 }

@@ -33,12 +33,14 @@ The deployment workflow currently contains a placeholder deploy step. Replace on
 Suggested webhook paths:
 
 - `/webhook/plane-ready`
+- `/webhook/github-issue-codex-dispatch`
 - `/webhook/github-pr-review`
+- `/webhook/slack-agent-approval`
 - `/webhook/github-deploy-result`
 
 ## 4. Plane
 
-1. Create or confirm states named `Ready`, `Review`, `Done`, and `Blocked` or map the specs to your actual state names.
+1. Create or confirm states named `Ready`, `Building`, `Review`, `Changes Requested`, `Approved`, `Deploying`, `Done`, and `Blocked` or map the specs to your actual state names.
 2. Add a custom field for the GitHub issue URL if available.
 3. Configure a Plane webhook for issue update events.
 4. Send the webhook to the Hostinger n8n Plane Ready workflow URL.
@@ -49,6 +51,7 @@ Suggested webhook paths:
 Create GitHub webhooks pointing to Hostinger n8n:
 
 - Pull request webhook -> `/webhook/github-pr-review`
+- Issues webhook -> `/webhook/github-issue-codex-dispatch`
 - Issue comment webhook -> `/webhook/github-pr-feedback`
 - Workflow run webhook -> `/webhook/github-deploy-result`
 
@@ -58,20 +61,20 @@ Use a GitHub webhook secret and validate `X-Hub-Signature-256` in n8n.
 
 Create Slack destinations for:
 
-- PR review messages.
-- Deployment result messages.
+- One PR approval message.
+- One deployment completion message.
 - Optional queue/failure messages.
 
-Messages should contain links, status, and next actions. They should not contain secrets or raw webhook payloads.
+Configure Slack interactivity to send button callbacks to `/webhook/slack-agent-approval`. Messages should contain links, status, and next actions. They should not contain secrets or raw webhook payloads.
 
 ## 7. Codex Work Loop
 
 1. Plane task moves to `Ready`.
 2. n8n creates the GitHub issue.
-3. Codex picks up the issue.
+3. n8n comments `@codex` on the GitHub issue to request a build.
 4. Codex creates a feature branch, implements the change, validates locally, and opens a PR.
 5. GitHub Actions checks the PR.
-6. Slack receives the review message.
-7. You review and merge in GitHub.
+6. Slack receives one approval message with Approve, Request Changes, and Block buttons.
+7. Approval merges the PR through GitHub branch protection.
 8. GitHub Actions deploys from `main`.
-9. n8n updates Plane and Slack with the deployment result.
+9. n8n updates Plane, closes the GitHub issue, and sends one completion message.

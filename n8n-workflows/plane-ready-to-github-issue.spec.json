@@ -56,6 +56,7 @@
       "name": "Normalize Plane payload",
       "outputs": {
         "plane_issue_id": "Issue UUID from Plane payload",
+        "plane_project_id": "Project UUID from Plane payload; downstream workflows must prefer this over CONFIG fallback",
         "plane_issue_key": "Human readable issue key if available",
         "plane_title": "Issue title",
         "plane_description": "Issue description",
@@ -158,8 +159,8 @@
     }
   ],
   "templates": {
-    "github_issue_body": "## Plane Task\n- Plane URL: {{plane_url}}\n- Plane ID: {{plane_issue_id}}\n- Plane Project ID: {{plane_project_id}}\n- Plane Key: {{plane_issue_key}}\n\n## Goal\n{{plane_title}}\n\n## Details\n{{plane_description}}\n\n## Acceptance Criteria\n- Implement the requested change.\n- Add or update validation appropriate to the change.\n- Open a GitHub PR against main.\n- Include summary, tests, risks, and next steps in the PR.\n\n## Codex Instructions\n- Create a feature branch; do not commit directly to main.\n- Build and test locally.\n- Do not deploy from Codex.\n- Keep secrets out of files and logs.\n- Open a PR when ready for review.\n\n## Automation Metadata\nplane_issue_id: {{plane_issue_id}}\nplane_project_id: {{plane_project_id}}\nplane_url: {{plane_url}}",
-    "slack_queue_message": "Plane task queued for Codex\nPlane: {{plane_url}}\nGitHub Issue: {{github_issue_url}}\nNext: Codex should build through a branch and PR."
+    "github_issue_body": "## Plane Task\n- Plane URL: {{plane_url}}\n- Plane ID: {{plane_issue_id}}\n- Plane Project ID: {{plane_project_id}}\n- Plane Key: {{plane_issue_key}}\n\n## Goal\n{{plane_title}}\n\n## Details\n{{plane_description}}\n\n## Acceptance Criteria\n- Implement the requested change.\n- Add or update validation appropriate to the change.\n- Open a GitHub PR against main.\n- Include summary, tests, risks, and next steps in the PR.\n\n## Codex Instructions\n- Create a feature branch; do not commit directly to main.\n- Build and test locally.\n- Do not deploy from Codex.\n- Keep secrets out of files and logs.\n- Open a PR when ready for review.\n\n## Automation Metadata\nplane_issue_id: {{plane_issue_id}}\nplane_project_id: {{plane_project_id}}\nplane_url: {{plane_url}}\nplane_workspace_slug: {{plane_workspace_slug}}\ngithub_issue_number: pending\nsource_workflow: Plane Ready to GitHub Issue",
+    "slack_queue_message": "Deprecated for the normal path. Do not send queue notifications; GitHub Issue to Codex Dispatch owns the next step."
   },
   "safe_failure_handling": [
     "Never create a second GitHub issue if a Plane issue already has an open GitHub issue URL.",
@@ -169,6 +170,7 @@
     "After creating an issue, wait briefly, re-search GitHub, and close any just-created duplicate that is not the canonical open issue.",
     "On GitHub API failure, leave Plane in Ready and add a failure comment when possible.",
     "On Plane update failure after GitHub issue creation, notify Slack and return the GitHub issue URL for manual repair.",
-    "Do not include API tokens or webhook secrets in Slack or Plane comments."
+    "Do not include API tokens or webhook secrets in Slack or Plane comments.",
+    "Do not send routine Slack queue messages; humans should only see approval and completion notifications on the happy path."
   ]
 }

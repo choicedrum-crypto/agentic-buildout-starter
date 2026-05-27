@@ -1,0 +1,44 @@
+{
+  "name": "GitHub Issue to Codex Dispatch",
+  "version": 1,
+  "runtime": "Hostinger n8n",
+  "purpose": "Claim Codex-ready GitHub issues created from Plane and request Codex by commenting @codex on the GitHub issue.",
+  "trigger": {
+    "type": "webhook",
+    "source": "GitHub",
+    "path": "/webhook/github-issue-codex-dispatch",
+    "events": [
+      "issues"
+    ],
+    "actions": [
+      "opened",
+      "edited",
+      "labeled",
+      "reopened"
+    ]
+  },
+  "eligibility": [
+    "Issue is open.",
+    "Labels include plane, codex-ready, and automation.",
+    "Labels do not include codex-in-progress, codex-pr-open, done, or blocked.",
+    "Issue body includes plane_issue_id and plane_project_id.",
+    "Issue is not a pull request."
+  ],
+  "core_logic": [
+    "Parse Plane metadata from the GitHub issue body.",
+    "Claim the GitHub issue with codex-in-progress.",
+    "Comment on the issue with an @codex implementation request and required PR metadata.",
+    "Resolve the Plane Building state by name within the issue project.",
+    "Move the Plane item to Building only after the Codex request comment is created.",
+    "Ignore duplicate or already-claimed webhook deliveries."
+  ],
+  "codex_comment": "@codex please implement this issue.\n\nUse the issue body as the source of truth. Create a feature branch, make the code changes, run appropriate validation, and open a PR against main.\n\nInclude plane_issue_id, plane_project_id, github_issue_number, and plane_url in the PR body.\n\nDo not deploy from Codex.",
+  "safe_failure_handling": [
+    "Do not dispatch if required metadata is missing.",
+    "Do not dispatch if the issue is already claimed or has an open PR label.",
+    "Use GitHub labels as visible claim state.",
+    "Use Plane project ID from issue metadata, not a hardcoded project ID.",
+    "Routine dispatch should not notify Slack.",
+    "Do not use the OpenAI API for this workflow; the Codex request travels through GitHub using the existing GitHub credential."
+  ]
+}

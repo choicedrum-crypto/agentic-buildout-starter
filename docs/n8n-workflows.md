@@ -23,10 +23,11 @@ Core logic:
 8. Persist the canonical issue in the `plane_ready_issue_locks` n8n Data Table keyed by `plane_issue_id`.
 9. Close any just-created duplicate GitHub issue that is not canonical.
 10. Add the GitHub issue link back to Plane as a comment or custom field.
-11. Optionally notify Slack that work is queued.
+11. Do not notify Slack on the happy path; the next workflow dispatches the agent.
 
 The GitHub issue body must include:
 - Plane task URL and ID.
+- Plane project ID.
 - Goal and details from Plane.
 - Acceptance criteria.
 - Codex instructions to create a branch, test, open a PR, and not deploy.
@@ -53,13 +54,59 @@ Core logic:
 5. Comment on Plane with the PR URL when Plane context is resolved.
 6. Send Slack a review message with the PR merge link.
 
-Slack message must include:
+Slack approval message must include:
 - Plane link, if available.
 - GitHub issue link, if available.
 - PR / merge link.
 - Check status.
 - Summary and risk notes from the PR body where available.
-- Next step: review and merge in GitHub.
+- Buttons for `Approve`, `Request Changes`, and `Block`.
+
+## Workflow B2: GitHub Issue to Codex Request
+
+Spec: `n8n-workflows/github-issue-to-codex-dispatch.spec.json`
+
+Trigger:
+- GitHub `issues` webhook for opened, edited, labeled, and reopened events.
+
+Core logic:
+1. Continue only for open issues labeled `plane`, `codex-ready`, and `automation`.
+2. Ignore issues already labeled in-progress, PR-open, done, or blocked.
+3. Parse `plane_issue_id`, `plane_project_id`, and Plane URL from the issue body.
+4. Claim the issue with a visible in-progress label.
+5. Comment on the issue with an `@codex` implementation request and required PR metadata.
+6. Resolve the Plane `Building` state by name in the Plane project.
+7. Move Plane to `Building` after the Codex request comment is created.
+
+## Workflow B3: Slack Approval to Merge
+
+Spec: `n8n-workflows/slack-approval-to-merge.spec.json`
+
+Trigger:
+- Slack interactive button callback to `/webhook/slack-agent-approval`.
+
+Core logic:
+1. Parse the Slack action payload.
+2. On `Approve`, call GitHub's PR merge endpoint.
+3. On `Request Changes`, comment on the PR with `/codex revise`.
+4. On `Block`, comment on the PR and stop automation.
+5. Let GitHub branch protection prevent unsafe merges.
+
+## Workflow B4: Codex PR Publication Watchdog
+
+Spec: `n8n-workflows/codex-pr-publication-watchdog.spec.json`
+
+Trigger:
+- Scheduled every 30 minutes.
+
+Core logic:
+1. Search for the oldest open GitHub issue labeled `plane`, `codex-ready`, `automation`, and `codex-in-progress` that has not been updated for `CONFIG.stale_minutes`.
+2. Ignore issues already labeled `codex-pr-open`, `done`, or `blocked`.
+3. Search open PRs for the Plane metadata from the issue body.
+4. If a PR exists, label the issue `codex-pr-open`.
+5. If no PR exists, comment on the issue, label it `codex-pr-missing` and `blocked`, and send one Slack exception message.
+
+This workflow exists because the Codex connector can acknowledge work in a GitHub comment before a branch or PR is actually visible in GitHub. The watchdog keeps that connector failure from silently stalling the Plane-to-deploy loop.
 
 ## Workflow C: Deployment Result to Plane and Slack
 

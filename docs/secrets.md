@@ -9,6 +9,11 @@ Add these in GitHub: repo -> Settings -> Secrets and variables -> Actions.
 - `SLACK_WEBHOOK_URL` - Slack incoming webhook used by the deploy-after-merge workflow for deployment results.
 - `N8N_BASE_URL` - Hostinger n8n API/MCP endpoint used by the post-merge deploy job to publish workflows.
 - `N8N_API_KEY` - n8n API key used by the post-merge deploy job. Store only in GitHub Secrets.
+- `N8N_REST_API_KEY` - n8n public API key used only when the Email Categorizer publish falls back to the REST API. Create this in n8n under Settings -> n8n API with workflow create/read/list/update/delete/activate scopes, then store it only in GitHub Secrets.
+
+Optional deploy variables:
+
+- `EMAIL_CATEGORIZER_ENABLE_POSTGRES_AUDIT` - set to `true` only after the n8n credential named `Email Categorizer Postgres` exists and `scripts/email-categorizer-audit.sql` has been applied. When unset, the workflow prepares audit rows but does not include the Postgres insert node.
 
 Optional, depending on how you later replace the deploy placeholder:
 
@@ -20,12 +25,15 @@ Optional, depending on how you later replace the deploy placeholder:
 Create these in Hostinger n8n credentials:
 
 - GitHub API token or GitHub App credential with issue, pull request, and check read permissions plus issue write permissions.
+- GitHub HTTP bearer credential named `GitHub HTTP Bearer` for REST endpoints that are not covered by the n8n GitHub node, including Slack approval PR merge requests.
 - GitHub webhook secret for validating `X-Hub-Signature-256`. The current builder marks this as `pending-secret-credential` until a credential-access pattern is added in n8n.
 - Plane API token with issue read/write permissions.
 - Plane webhook secret for validating `X-Plane-Signature`. The current builder captures raw webhook bodies but leaves validation marked `pending-secret-credential` until the secret can be read from an n8n credential.
 - Slack bot token or Slack incoming webhook for review and status messages.
+- Slack HTTP bearer credential named `Slack Bot HTTP Bearer` for Block Kit approval messages via `chat.postMessage`.
 - Microsoft Outlook OAuth2 credential for the email categorizer workflow.
-- `DBHub LiteLLM` HTTP Header Auth credential for Tier 3 email classification. Use header name `Authorization` and value `Bearer <LiteLLM master key>`.
+- Postgres credential named `Email Categorizer Postgres` for the dedicated email classifier audit database.
+- DBHub direct Ollama endpoint/model for Tier 3 email classification. The current endpoint is `http://100.66.221.24:11434` over Tailscale and does not require a LiteLLM credential.
 - Dedicated classifier Postgres credential for email categorizer audit rows.
 
 After publishing workflow changes that add new Plane HTTP Request nodes, open each new node in n8n and confirm it is bound to the existing `Plane Main` HTTP Header Auth credential. The credential should send the Plane API key as the configured header value; do not paste the key into workflow node headers or `CONFIG`.
@@ -49,6 +57,10 @@ Do not use enterprise/global n8n variables for this starter. Each workflow must 
 - `public_n8n_base_url`, default `https://n8n.tradecredit.agency`
 - `plane_ready_lock_table_id`, n8n Data Table ID for `plane_ready_issue_locks`
 - `plane_ready_lock_table_name`, default `plane_ready_issue_locks`
+- `codex_mention`, default `@codex`, used in the GitHub issue comment that requests Codex to build the issue
+- `plane_building_state_name`, default `Building`
+- `plane_approved_state_name`, default `Approved`
+- `plane_changes_state_name`, default `Changes Requested`
 
 Email categorizer workflow CONFIG values:
 
@@ -60,10 +72,10 @@ Email categorizer workflow CONFIG values:
 - `classifier_mount_path`, default `/data/classifier`
 - `audit_table`, default `inbox_classifications`
 - `outlook_category_map`
-- `tier3_provider`, default `dbhub_local_llm`
+- `tier3_provider`, default `dbhub_ollama`
 - `local_llm_base_url`
 - `local_llm_model`
-- `local_llm_credential`
+- `enable_tier3_local_llm`, default `true` for dry-run Tier 3 review
 
 ## Secret Handling Rules
 

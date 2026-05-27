@@ -56,6 +56,19 @@ If the deployment comment is missing but Slack and the Plane state update succee
 
 The Plane Ready workflow waits after issue creation, re-searches GitHub, stores the canonical issue in `plane_ready_issue_locks`, and closes any just-created duplicate. If duplicates remain open, inspect the `Close Duplicate GitHub Issue` node and confirm it is bound to the `GitHub account` credential.
 
+## Recover from missing Codex PR
+
+Use this when Codex comments that it created a branch or PR, but no GitHub branch, commit, or PR exists.
+
+1. Open the GitHub issue and capture the Codex task link from the connector comment.
+2. Confirm the issue has `codex-pr-missing` and `blocked`.
+3. Check repository events for a branch create, push, or pull request from `chatgpt-codex-connector[bot]`.
+4. If no GitHub artifact exists, repair the Codex environment or GitHub connector PR publication setting.
+5. Remove `blocked` and `codex-pr-missing` only after the connector is repaired.
+6. Re-dispatch Codex or create the PR manually.
+
+The `Codex PR Publication Watchdog` runs every 30 minutes and sends one Slack exception message for this state. Do not repeatedly tag `@codex` until the connector can publish a visible branch or PR.
+
 ## Recover from failed deploy
 
 1. Open the GitHub Actions run from the Slack deployment message.
