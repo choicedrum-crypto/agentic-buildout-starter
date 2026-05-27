@@ -7,7 +7,7 @@
   "trigger": {
     "type": "schedule, manual, and test webhook",
     "source": "n8n",
-    "interval": "Every 30 minutes",
+    "interval": "Every 5 minutes",
     "manual": "Manual validation trigger",
     "test_path": "/webhook/email-categorizer-test"
   },
@@ -25,7 +25,7 @@
       "dry_run": false,
       "enable_schedule_processing": true,
       "enable_outlook_patch": true,
-      "batch_limit": 10,
+      "batch_limit": 50,
       "tier3_confidence_threshold": 0.65,
       "slack_exception_channel": "#workflow-builder",
       "classifier_mount_path": "/data/classifier",
