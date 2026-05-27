@@ -41,7 +41,7 @@
         "github_owner": "GitHub repository owner or organization",
         "github_repo": "GitHub repository name",
         "plane_workspace_slug": "Plane workspace slug",
-        "plane_project_id": "Plane project ID",
+        "plane_project_id": "Fallback Plane project ID; PR bodies should provide plane_project_id from the original Plane Ready issue metadata",
         "plane_review_state_name": "Review",
         "slack_review_channel": "Slack channel for PR review messages",
         "public_n8n_base_url": "https://n8n.tradecredit.agency"

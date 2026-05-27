@@ -1635,7 +1635,16 @@ const stateObject = issue.state || issue.status || body.state || body.status || 
 const stateValue = stateObject.name || issue.state_name || issue.status_name || body.state_name || body.status_name || stateObject || '';
 const stateId = stateObject.id || stateObject.uuid || issue.state_id || issue.state || body.state_id || body.state || '';
 const planeIssueId = issue.id || issue.uuid || issue.issue_id || issue.work_item_id || body.issue_id || body.work_item_id || '';
-const planeProjectId = issue.project_id || issue.project?.id || issue.project?.uuid || body.project_id || body.project?.id || config.plane_project_id || '';
+const projectObject = issue.project || body.project || {};
+const planeProjectId =
+  issue.project_id ||
+  body.project_id ||
+  projectObject.id ||
+  projectObject.uuid ||
+  (typeof issue.project === 'string' ? issue.project : '') ||
+  (typeof body.project === 'string' ? body.project : '') ||
+  config.plane_project_id ||
+  '';
 const planeIssueKey = issue.identifier || issue.sequence_id || issue.key || body.issue_key || '';
 const title = issue.name || issue.title || body.title || 'Plane task ready for Codex';
 const description = issue.description_html || issue.description_stripped || issue.description || body.description || '';
@@ -2144,12 +2153,12 @@ const resolvePlaneReviewState = node({
       language: 'javaScript',
       jsCode: \`
 const original = $('Extract PR Review Context').item.json;
-const states = Array.isArray($json.results) ? $json.results : (Array.isArray($json) ? $json : []);
+const states = Array.isArray($json.results) ? $json.results : (Array.isArray($json.data) ? $json.data : (Array.isArray($json) ? $json : []));
 const review = states.find((state) => String(state.name || '').toLowerCase() === String(original.config.plane_review_state_name || 'Review').toLowerCase());
 return {
   json: {
     ...original,
-    plane_state_id: review?.id || original.config.plane_review_state_id,
+    plane_state_id: review?.id || review?.uuid || original.config.plane_review_state_id,
     plane_state_name: review?.name || original.config.plane_review_state_name || 'Review',
   },
 };

@@ -33,6 +33,7 @@ OpenClaw, Hermes, and local LLM services are intentionally outside the critical 
 
 - Website checker: scheduled n8n workflow for checking `http://www.tciallc.com/`. See `docs/website-checker.md`.
 - Email categorizer: dry-run-first n8n workflow spec for Outlook Eisenhower classification. See `docs/email-categorizer.md`.
+- DBhub scoring audit log: Postgres migration and verification notes. See `docs/scoring-log.md`.
 - Agentic workflow plan: durable Plane -> GitHub -> Codex -> Slack approval -> deploy loop. See `docs/agentic-workflow-implementation-plan.md`.
 
 ## First Setup
