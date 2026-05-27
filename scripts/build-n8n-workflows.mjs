@@ -4240,15 +4240,18 @@ const approvedDecision = ifElse({
   }
 });
 
-const mergePr = node({
+const updatePrBranch = node({
   type: 'n8n-nodes-base.httpRequest',
   version: 4.4,
   config: {
-    name: 'Merge Approved PR',
-    credentials: { httpHeaderAuth: newCredential('${githubHttpCredential}') },
+    name: 'Update PR Branch for Strict Checks',
+    onError: 'continueRegularOutput',
+    continueOnFail: true,
+    alwaysOutputData: true,
+    credentials: { httpHeaderAuth: newCredential('${githubHttpCredential}', 'httpHeaderAuth') },
     parameters: {
       method: 'PUT',
-      url: expr('{{ "https://api.github.com/repos/" + $json.config.github_owner + "/" + $json.config.github_repo + "/pulls/" + $json.pr_number + "/merge" }}'),
+      url: expr('{{ "https://api.github.com/repos/" + $("Extract Slack Decision").item.json.config.github_owner + "/" + $("Extract Slack Decision").item.json.config.github_repo + "/pulls/" + $("Extract Slack Decision").item.json.pr_number + "/update-branch" }}'),
       authentication: 'genericCredentialType',
       genericAuthType: 'httpHeaderAuth',
       sendHeaders: true,
@@ -4256,7 +4259,41 @@ const mergePr = node({
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
-      jsonBody: expr('{{ { merge_method: $json.config.merge_method || "squash", commit_title: "Merge approved agentic PR #" + $json.pr_number } }}')
+      jsonBody: expr('{{ {} }}')
+    }
+  }
+});
+
+const waitForStrictChecks = node({
+  type: 'n8n-nodes-base.wait',
+  version: 1.1,
+  config: {
+    name: 'Wait for Required Checks',
+    parameters: {
+      resume: 'timeInterval',
+      amount: 45,
+      unit: 'seconds'
+    }
+  }
+});
+
+const mergePr = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Merge Approved PR',
+    credentials: { httpHeaderAuth: newCredential('${githubHttpCredential}', 'httpHeaderAuth') },
+    parameters: {
+      method: 'PUT',
+      url: expr('{{ "https://api.github.com/repos/" + $("Extract Slack Decision").item.json.config.github_owner + "/" + $("Extract Slack Decision").item.json.config.github_repo + "/pulls/" + $("Extract Slack Decision").item.json.pr_number + "/merge" }}'),
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Accept', value: 'application/vnd.github+json' }, { name: 'Content-Type', value: 'application/json' }] },
+      sendBody: true,
+      contentType: 'json',
+      specifyBody: 'json',
+      jsonBody: expr('{{ { merge_method: $("Extract Slack Decision").item.json.config.merge_method || "squash", commit_title: "Merge approved agentic PR #" + $("Extract Slack Decision").item.json.pr_number } }}')
     }
   }
 });
@@ -4289,7 +4326,7 @@ export default workflow('slack-approval-to-merge', 'Slack Approval to Merge')
   .to(extract)
   .to(validDecision
     .onTrue(approvedDecision
-      .onTrue(mergePr.to(respondApproved))
+      .onTrue(respondApproved.to(updatePrBranch).to(waitForStrictChecks).to(mergePr))
       .onFalse(commentPrDecision.to(respondQueued)))
     .onFalse(respondIgnored));
 `;
