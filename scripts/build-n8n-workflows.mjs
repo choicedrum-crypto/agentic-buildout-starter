@@ -130,8 +130,9 @@ function buildEmailCategorizerRestWorkflow(name) {
   const enablePostgresAudit = env.EMAIL_CATEGORIZER_ENABLE_POSTGRES_AUDIT === 'true';
   const config = {
     ms_user_email: 'dbradley@tciallc.com',
-    dry_run: true,
-    batch_limit: 25,
+    dry_run: false,
+    enable_schedule_processing: true,
+    batch_limit: 10,
     tier3_confidence_threshold: 0.65,
     slack_exception_channel: '#workflow-builder',
     audit_table: 'inbox_classifications',
@@ -143,7 +144,7 @@ function buildEmailCategorizerRestWorkflow(name) {
     local_llm_base_url: 'http://100.66.221.24:11434',
     local_llm_model: 'qwen2.5:7b',
     enable_tier3_local_llm: true,
-    enable_outlook_patch: false,
+    enable_outlook_patch: true,
     outlook_category_map: {
       Q1: 'Q1: Do Now',
       Q2: 'Q2: Schedule',
@@ -181,14 +182,21 @@ function addressOf(value) {
 function deterministic(message) {
   const subject = String(message.subject || '').toLowerCase();
   const sender = addressOf(message.from).toLowerCase();
-  if (/urgent|asap|past due|credit hold|escalat/.test(subject) || message.importance === 'high') {
-    return { quadrant: 'Q1', confidence: 0.78, tier_fired: 2, reason: 'Urgent or high-importance metadata.' };
+  const domain = sender.split('@').pop() || '';
+  if (
+    /github\.com$/.test(sender) &&
+    /\b(run failed|workflow failed|check suite failed|deploy after merge)\b/.test(subject)
+  ) {
+    return { quadrant: 'Q4', confidence: 0.86, tier_fired: 2, reason: 'GitHub Actions failure notification is low-value automation noise for this mailbox.' };
   }
-  if (/meeting|schedule|renewal|review|proposal|follow up/.test(subject)) {
-    return { quadrant: 'Q2', confidence: 0.72, tier_fired: 2, reason: 'Planning or follow-up metadata.' };
+  if (/(urgent|asap|past due|overdue|suspension|credit hold|escalat|blocked|outage|deadline)/.test(subject) || message.importance === 'high') {
+    return { quadrant: 'Q1', confidence: 0.84, tier_fired: 2, reason: 'Urgent, blocked, overdue, or high-importance metadata.' };
   }
-  if (/unsubscribe|newsletter|promotion|sale/.test(subject) || /no-reply|noreply/.test(sender)) {
-    return { quadrant: 'Q4', confidence: 0.82, tier_fired: 2, reason: 'Low-value sender or promotional metadata.' };
+  if (/(indication request|policy|euler hermes|atradius|aig|liberty|ach set ?up|monthly reporting|sales declaration|approved coverage|coverage|credit insurance|proposal|follow up|review|tristar|payment|invoice|statement|autopay|payment reminder|money|renewal|appointment|meeting|schedule|agenda|planning)/.test(subject) || /(atradius\.com|aig\.com|libertymutual\.com|vpracingfuels\.com)$/.test(domain)) {
+    return { quadrant: 'Q2', confidence: 0.82, tier_fired: 2, reason: 'Business credit, insurance, finance, appointment, or follow-up metadata worth scheduling.' };
+  }
+  if (/(automatic reply|property sold|neighborhood alert|conference|now live|cooler, calmer home|plex pass|newsletter|unsubscribe|promotion|promo|discount|digest|webinar)/.test(subject) || /(neighborhoodalerts\.com|m\.plex\.tv|gie\.net|connect\.fergusonhome\.com|email\.openai\.com|amazon\.com|acquisition\.com)$/.test(domain) || /no-reply|noreply/.test(sender)) {
+    return { quadrant: 'Q4', confidence: 0.84, tier_fired: 2, reason: 'Low-value alert, pricing, digest, or promotional metadata.' };
   }
   return { quadrant: 'QR', confidence: 0.4, tier_fired: 2, reason: 'Needs local LLM metadata review.' };
 }
@@ -214,7 +222,7 @@ const needsTier3 = baseResults.filter((result) => result.confidence < config.tie
 return [{
   json: {
     config,
-    mode: supplied.length ? 'provided_messages' : outlookMessages.length ? 'outlook_metadata_dry_run' : 'sample',
+    mode: supplied.length ? 'provided_messages' : outlookMessages.length ? (config.dry_run ? 'outlook_metadata_dry_run' : 'outlook_metadata_live') : 'sample',
     fetched_unread_count: Number($json.fetched_unread_count || 0),
     skipped_already_categorized_count: Number($json.skipped_already_categorized_count || 0),
     base_results: baseResults,
@@ -258,7 +266,7 @@ const messages = raw
 return [{
   json: {
     ...configInput,
-    mode: 'outlook_metadata_dry_run',
+    mode: configInput.config?.dry_run ? 'outlook_metadata_dry_run' : 'outlook_metadata_live',
     fetched_unread_count: raw.length,
     skipped_already_categorized_count: raw.length - messages.length,
     messages,
@@ -285,7 +293,23 @@ if (needsTier3Count) {
     }
     const jsonText = content.slice(jsonStart, jsonEnd + 1);
     const parsed = JSON.parse(jsonText);
-    tier3Results = Array.isArray(parsed.results) ? parsed.results : [];
+    const arrayCandidate =
+      parsed.results ||
+      parsed.classifications ||
+      parsed.result ||
+      parsed.classification ||
+      parsed.messages ||
+      parsed.items;
+    if (Array.isArray(arrayCandidate)) {
+      tier3Results = arrayCandidate;
+    } else if (arrayCandidate && typeof arrayCandidate === 'object') {
+      tier3Results = Object.entries(arrayCandidate).map(([key, value]) => ({ key, ...(value || {}) }));
+    } else if (parsed && typeof parsed === 'object') {
+      const objectRows = Object.entries(parsed)
+        .filter(([, value]) => value && typeof value === 'object' && (value.quadrant || value.category))
+        .map(([key, value]) => ({ key, ...value }));
+      tier3Results = objectRows.length ? objectRows : [];
+    }
   } catch (error) {
     tier3Status = 'failed_local_llm';
     tier3Error = error.message;
@@ -293,10 +317,28 @@ if (needsTier3Count) {
 }
 
 const allowed = new Set(['Q1', 'Q2', 'Q3', 'Q4', 'QR']);
-const byKey = new Map(tier3Results.map((result) => [String(result.key || ''), result]));
+const byKey = new Map();
+for (const result of tier3Results) {
+  for (const key of [result.key, result.message_id, result.internet_message_id]) {
+    if (key) byKey.set(String(key), result);
+  }
+}
+let tier3OrderIndex = 0;
 const results = baseResults.map((result) => {
-  const tier3 = byKey.get(String(result.tier3_key || ''));
-  if (!tier3 || !allowed.has(tier3.quadrant)) {
+  if (result.confidence >= config.tier3_confidence_threshold || !needsTier3Count) {
+    return { ...result, tier3_status: 'skipped', error_text: null };
+  }
+
+  let tier3 =
+    byKey.get(String(result.tier3_key || '')) ||
+    byKey.get(String(result.message_id || '')) ||
+    byKey.get(String(result.internetMessageId || ''));
+  if (!tier3 && tier3Results.length === needsTier3Count) {
+    tier3 = tier3Results[tier3OrderIndex];
+  }
+  tier3OrderIndex += 1;
+  const quadrant = String(tier3?.quadrant || tier3?.category || tier3?.label || '').toUpperCase().replace(/^.*(Q[1-4]|QR).*$/, '$1');
+  if (!tier3 || !allowed.has(quadrant)) {
     const missingError = !tier3
       ? 'Ollama did not return a matching key for this message.'
       : 'Ollama returned an invalid quadrant for this message.';
@@ -308,7 +350,7 @@ const results = baseResults.map((result) => {
   }
   return {
     ...result,
-    quadrant: tier3.quadrant,
+    quadrant,
     confidence: Number(tier3.confidence || result.confidence),
     tier_fired: 3,
     reason: tier3.reason || result.reason,
@@ -317,7 +359,7 @@ const results = baseResults.map((result) => {
   };
 });
 const now = new Date().toISOString();
-const auditRows = results.map((result) => ({
+  const auditRows = results.map((result) => ({
   classified_at: now,
   message_id: result.message_id,
   internet_message_id: result.internetMessageId || null,
@@ -343,7 +385,7 @@ const auditRows = results.map((result) => ({
 return [{
   json: {
     ok: true,
-    action: 'email_categorizer_dry_run',
+    action: config.dry_run ? 'email_categorizer_dry_run' : 'email_categorizer_live',
     mode: prepared.mode,
     dry_run: config.dry_run,
     mailbox: config.ms_user_email,
@@ -354,7 +396,7 @@ return [{
     local_llm_base_url: config.local_llm_base_url,
     local_llm_model: config.local_llm_model,
     messages: results.length,
-    outlook_patch_status: 'disabled_dry_run',
+    outlook_patch_status: config.dry_run ? 'skipped_dry_run' : 'pending_outlook_patch',
     audit_status: config.enable_postgres_audit ? 'pending_postgres_insert' : 'prepared_postgres_pending_credential',
     audit_table: config.audit_table,
     audit_rows: auditRows,
@@ -367,7 +409,7 @@ return [{
 const response = $('Merge DBHub Ollama Result').item.json;
 const rows = response.audit_rows || [];
 if (!rows.length) {
-  return [{ json: { ...response, audit_status: 'skipped_no_audit_rows', audit_insert_count: 0 } }];
+  return [{ json: { response: { ...response, audit_status: 'skipped_no_audit_rows', audit_insert_count: 0 }, query: 'select null::int as id' } }];
 }
 
 function sql(value) {
@@ -425,9 +467,131 @@ return rows.map((row) => {
 });
 `;
 
+  const prepareLivePatchCode = String.raw`
+const response = $('Merge DBHub Ollama Result').item.json;
+const config = response.config || {};
+const results = Array.isArray(response.results) ? response.results : [];
+const auditRows = Array.isArray(response.audit_rows) ? response.audit_rows : [];
+const isOutlookRun = String(response.mode || '').startsWith('outlook_metadata_');
+const patchEnabled = config.enable_outlook_patch !== false && String(config.enable_outlook_patch).toLowerCase() !== 'false';
+const mailbox = response.mailbox || config.ms_user_email;
+
+if (config.dry_run) {
+  return [{ json: { ...response, patch_needed: false, patch_requests: [], outlook_patch_status: 'skipped_dry_run' } }];
+}
+if (!patchEnabled) {
+  return [{ json: { ...response, patch_needed: false, patch_requests: [], outlook_patch_status: 'disabled_until_enable_outlook_patch_true' } }];
+}
+if (!isOutlookRun) {
+  return [{ json: { ...response, patch_needed: false, patch_requests: [], outlook_patch_status: 'skipped_not_outlook_run' } }];
+}
+if (!mailbox) {
+  return [{ json: { ...response, patch_needed: false, patch_requests: [], outlook_patch_status: 'failed_missing_mailbox' } }];
+}
+
+const requests = results
+  .map((result, index) => {
+    const label = config.outlook_category_map?.[result.quadrant] || result.outlook_category_label || auditRows[index]?.outlook_category_label;
+    if (!result.message_id || !label || result.error_text) return null;
+    const categories = Array.from(new Set([...(Array.isArray(result.categories) ? result.categories : []), label]));
+    return {
+      id: String(index),
+      method: 'PATCH',
+      url: '/users/' + encodeURIComponent(mailbox) + '/messages/' + encodeURIComponent(result.message_id),
+      headers: { 'Content-Type': 'application/json' },
+      body: { categories },
+    };
+  })
+  .filter(Boolean);
+
+return [{
+  json: {
+    ...response,
+    patch_needed: requests.length > 0,
+    patch_requests: requests,
+    outlook_patch_status: requests.length ? 'pending_outlook_patch' : 'skipped_no_patch_candidates',
+    batch_body: { requests },
+  },
+}];
+`;
+
+  const skipLivePatchCode = String.raw`
+const response = $('Prepare Live Outlook Patch Batch').item.json;
+return [{ json: response }];
+`;
+
+  const mergeLivePatchCode = String.raw`
+const response = $('Prepare Live Outlook Patch Batch').item.json;
+const transportError = $json.error?.message || $json.message || $json.description || '';
+const graphResponses = Array.isArray($json.responses)
+  ? $json.responses
+  : Array.isArray($json.body?.responses)
+    ? $json.body.responses
+    : Array.isArray($json.data?.responses)
+      ? $json.data.responses
+      : [];
+const byId = new Map(graphResponses.map((item) => [String(item.id || ''), item]));
+const requestedIds = new Set((response.patch_requests || []).map((request) => String(request.id)));
+const assumeSubmitted = !transportError && requestedIds.size > 0 && graphResponses.length === 0;
+let failures = transportError ? requestedIds.size : 0;
+
+const results = (response.results || []).map((result, index) => {
+  if (transportError) {
+    return { ...result, applied_ok: false, error_text: transportError };
+  }
+  const patch = byId.get(String(index));
+  if (!patch) {
+    return {
+      ...result,
+      applied_ok: assumeSubmitted && requestedIds.has(String(index)),
+      error_text: result.error_text || null,
+    };
+  }
+  const ok = Number(patch.status) >= 200 && Number(patch.status) < 300;
+  if (!ok) failures += 1;
+  return {
+    ...result,
+    applied_ok: ok,
+    error_text: ok ? result.error_text || null : (patch.body?.error?.message || 'Outlook PATCH failed with status ' + patch.status),
+  };
+});
+
+const auditRows = (response.audit_rows || []).map((row, index) => {
+  const result = results[index] || {};
+  return {
+    ...row,
+    applied_ok: Boolean(result.applied_ok),
+    error_text: result.error_text || row.error_text || null,
+  };
+});
+
+return [{
+  json: {
+    ...response,
+    results,
+    audit_rows: auditRows,
+    outlook_patch_status: failures ? 'failed_outlook_patch' : assumeSubmitted ? 'submitted_outlook_patch_no_response_body' : 'patched_outlook_categories',
+    outlook_patch_count: assumeSubmitted ? requestedIds.size : graphResponses.length - failures,
+    outlook_patch_error_count: failures,
+  },
+}];
+`;
+
+  const prepareAuditInsertCodeWithPatch = prepareAuditInsertCode.replace(
+    "const response = $('Merge DBHub Ollama Result').item.json;",
+    'const response = $json;',
+  ).replace(
+    'query: [',
+    'response,\n      query: [',
+  );
+
   const restoreAuditResponseCode = String.raw`
 const inserted = $input.all();
-const response = $('Merge DBHub Ollama Result').item.json;
+const preparedItems = $('Prepare Audit Insert Rows').all();
+const response = preparedItems[0]?.json?.response || {};
+if (!Array.isArray(response.audit_rows) || !response.audit_rows.length) {
+  return [{ json: { ...response, audit_status: 'skipped_no_audit_rows', audit_insert_count: 0, audit_error: '' } }];
+}
 const failed = inserted
   .map((item) => item.json?.error || item.json?.message || item.json?.description)
   .filter(Boolean);
@@ -473,6 +637,19 @@ return [{
       },
       {
         parameters: {
+          rule: {
+            interval: [{ field: 'minutes', minutesInterval: 30 }],
+          },
+        },
+        id: 'email-categorizer-live-schedule',
+        name: 'Email Categorizer Live Schedule',
+        type: 'n8n-nodes-base.scheduleTrigger',
+        typeVersion: 1.2,
+        position: [0, -120],
+        disabled: !config.enable_schedule_processing,
+      },
+      {
+        parameters: {
           mode: 'manual',
           includeOtherFields: true,
           assignments: {
@@ -491,7 +668,7 @@ return [{
             options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
             conditions: [
               {
-                leftValue: '={{ String(Array.isArray($json.body?.messages) || $json.body?.use_outlook !== true) }}',
+                leftValue: '={{ String(Array.isArray($json.body?.messages) || $json.body?.use_outlook === false) }}',
                 operator: { type: 'string', operation: 'equals' },
                 rightValue: 'true',
               },
@@ -553,6 +730,26 @@ return [{
       },
       {
         parameters: {
+          conditions: {
+            options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
+            conditions: [
+              {
+                leftValue: '={{ String(Number($json.needs_tier3_count || 0) > 0 && $json.config.enable_tier3_local_llm === true) }}',
+                operator: { type: 'string', operation: 'equals' },
+                rightValue: 'true',
+              },
+            ],
+            combinator: 'and',
+          },
+        },
+        id: 'needs-dbhub-ollama-tier3',
+        name: 'Needs DBHub Ollama Tier 3?',
+        type: 'n8n-nodes-base.if',
+        typeVersion: 2.3,
+        position: [1680, 120],
+      },
+      {
+        parameters: {
           method: 'POST',
           url: '={{ $json.config.local_llm_base_url + "/api/chat" }}',
           sendBody: true,
@@ -565,7 +762,8 @@ return [{
         name: 'Call DBHub Ollama',
         type: 'n8n-nodes-base.httpRequest',
         typeVersion: 4.4,
-        position: [1680, 120],
+        position: [1960, 40],
+        continueOnFail: true,
       },
       {
         parameters: {
@@ -577,7 +775,90 @@ return [{
         name: 'Merge DBHub Ollama Result',
         type: 'n8n-nodes-base.code',
         typeVersion: 2,
-        position: [1960, 120],
+        position: [2240, 120],
+      },
+      {
+        parameters: {
+          mode: 'runOnceForAllItems',
+          language: 'javaScript',
+          jsCode: prepareLivePatchCode,
+        },
+        id: 'prepare-live-outlook-patch-batch',
+        name: 'Prepare Live Outlook Patch Batch',
+        type: 'n8n-nodes-base.code',
+        typeVersion: 2,
+        position: [2520, 120],
+      },
+      {
+        parameters: {
+          conditions: {
+            options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
+            conditions: [
+              {
+                leftValue: '={{ String($json.patch_needed === true) }}',
+                operator: { type: 'string', operation: 'equals' },
+                rightValue: 'true',
+              },
+            ],
+            combinator: 'and',
+          },
+        },
+        id: 'live-outlook-patch-needed',
+        name: 'Live Outlook Patch Needed?',
+        type: 'n8n-nodes-base.if',
+        typeVersion: 2.3,
+        position: [2800, 120],
+      },
+      {
+        parameters: {
+          method: 'POST',
+          url: 'https://graph.microsoft.com/v1.0/$batch',
+          authentication: 'predefinedCredentialType',
+          nodeCredentialType: 'microsoftOutlookOAuth2Api',
+          sendHeaders: true,
+          headerParameters: { parameters: [{ name: 'Accept', value: 'application/json' }] },
+          sendBody: true,
+          contentType: 'json',
+          specifyBody: 'json',
+          jsonBody: '={{ JSON.stringify($json.batch_body) }}',
+          options: {},
+        },
+        credentials: {
+          microsoftOutlookOAuth2Api: {
+            id: 'UPbI07LdV7IQhWzs',
+            name: 'Microsoft Outlook account',
+          },
+        },
+        id: 'patch-outlook-categories',
+        name: 'Patch Outlook Categories',
+        type: 'n8n-nodes-base.httpRequest',
+        typeVersion: 4.4,
+        position: [3080, 40],
+        continueOnFail: true,
+      },
+      {
+        parameters: {
+          mode: 'runOnceForAllItems',
+          language: 'javaScript',
+          jsCode: mergeLivePatchCode,
+        },
+        id: 'merge-live-outlook-patch-result',
+        name: 'Merge Live Outlook Patch Result',
+        type: 'n8n-nodes-base.code',
+        typeVersion: 2,
+        position: [3360, 40],
+      },
+      {
+        parameters: {
+          mode: 'runOnceForAllItems',
+          language: 'javaScript',
+          jsCode: skipLivePatchCode,
+        },
+        id: 'merge-skipped-outlook-patch-result',
+        name: 'Merge Skipped Outlook Patch Result',
+        type: 'n8n-nodes-base.code',
+        typeVersion: 2,
+        position: [3360, 220],
       },
       ...(enablePostgresAudit
         ? [
@@ -585,13 +866,13 @@ return [{
               parameters: {
                 mode: 'runOnceForAllItems',
                 language: 'javaScript',
-                jsCode: prepareAuditInsertCode,
+                jsCode: prepareAuditInsertCodeWithPatch,
               },
               id: 'prepare-audit-insert',
               name: 'Prepare Audit Insert Rows',
               type: 'n8n-nodes-base.code',
               typeVersion: 2,
-              position: [2240, 120],
+              position: [3640, 120],
             },
             {
               parameters: {
@@ -612,7 +893,7 @@ return [{
               name: 'Insert Audit Rows',
               type: 'n8n-nodes-base.postgres',
               typeVersion: 2.6,
-              position: [2520, 120],
+              position: [3920, 120],
               continueOnFail: true,
             },
             {
@@ -625,7 +906,7 @@ return [{
               name: 'Restore Audit Response',
               type: 'n8n-nodes-base.code',
               typeVersion: 2,
-              position: [2800, 120],
+              position: [4200, 120],
             },
           ]
         : []),
@@ -636,15 +917,16 @@ return [{
           options: { responseCode: 200 },
         },
         id: 'return-dry-run-result',
-        name: 'Return Dry Run Result',
+        name: 'Return Email Categorizer Result',
         type: 'n8n-nodes-base.respondToWebhook',
         typeVersion: 1.4,
-        position: [3080, 120],
+        position: [4480, 120],
       },
     ],
     connections: {
       'Manual Test Trigger': { main: [[{ node: 'CONFIG', type: 'main', index: 0 }]] },
       'Email Categorizer Test Webhook': { main: [[{ node: 'CONFIG', type: 'main', index: 0 }]] },
+      'Email Categorizer Live Schedule': { main: [[{ node: 'CONFIG', type: 'main', index: 0 }]] },
       CONFIG: { main: [[{ node: 'Use Provided Or Sample?', type: 'main', index: 0 }]] },
       'Use Provided Or Sample?': {
         main: [
@@ -654,17 +936,34 @@ return [{
       },
       'Get Unread Outlook Metadata': { main: [[{ node: 'Normalize Outlook Metadata', type: 'main', index: 0 }]] },
       'Normalize Outlook Metadata': { main: [[{ node: 'Prepare Dry Run Classification', type: 'main', index: 0 }]] },
-      'Prepare Dry Run Classification': { main: [[{ node: 'Call DBHub Ollama', type: 'main', index: 0 }]] },
+      'Prepare Dry Run Classification': { main: [[{ node: 'Needs DBHub Ollama Tier 3?', type: 'main', index: 0 }]] },
+      'Needs DBHub Ollama Tier 3?': {
+        main: [
+          [{ node: 'Call DBHub Ollama', type: 'main', index: 0 }],
+          [{ node: 'Merge DBHub Ollama Result', type: 'main', index: 0 }],
+        ],
+      },
       'Call DBHub Ollama': { main: [[{ node: 'Merge DBHub Ollama Result', type: 'main', index: 0 }]] },
+      'Merge DBHub Ollama Result': { main: [[{ node: 'Prepare Live Outlook Patch Batch', type: 'main', index: 0 }]] },
+      'Prepare Live Outlook Patch Batch': { main: [[{ node: 'Live Outlook Patch Needed?', type: 'main', index: 0 }]] },
+      'Live Outlook Patch Needed?': {
+        main: [
+          [{ node: 'Patch Outlook Categories', type: 'main', index: 0 }],
+          [{ node: 'Merge Skipped Outlook Patch Result', type: 'main', index: 0 }],
+        ],
+      },
+      'Patch Outlook Categories': { main: [[{ node: 'Merge Live Outlook Patch Result', type: 'main', index: 0 }]] },
       ...(enablePostgresAudit
         ? {
-            'Merge DBHub Ollama Result': { main: [[{ node: 'Prepare Audit Insert Rows', type: 'main', index: 0 }]] },
+            'Merge Live Outlook Patch Result': { main: [[{ node: 'Prepare Audit Insert Rows', type: 'main', index: 0 }]] },
+            'Merge Skipped Outlook Patch Result': { main: [[{ node: 'Prepare Audit Insert Rows', type: 'main', index: 0 }]] },
             'Prepare Audit Insert Rows': { main: [[{ node: 'Insert Audit Rows', type: 'main', index: 0 }]] },
             'Insert Audit Rows': { main: [[{ node: 'Restore Audit Response', type: 'main', index: 0 }]] },
-            'Restore Audit Response': { main: [[{ node: 'Return Dry Run Result', type: 'main', index: 0 }]] },
+            'Restore Audit Response': { main: [[{ node: 'Return Email Categorizer Result', type: 'main', index: 0 }]] },
           }
         : {
-            'Merge DBHub Ollama Result': { main: [[{ node: 'Return Dry Run Result', type: 'main', index: 0 }]] },
+            'Merge Live Outlook Patch Result': { main: [[{ node: 'Return Email Categorizer Result', type: 'main', index: 0 }]] },
+            'Merge Skipped Outlook Patch Result': { main: [[{ node: 'Return Email Categorizer Result', type: 'main', index: 0 }]] },
           }),
     },
     settings: { executionOrder: 'v1', availableInMCP: true },
@@ -931,6 +1230,312 @@ return [{
       'Fetch Current Outlook Categories': { main: [[{ node: 'Prepare Correction Inserts', type: 'main', index: 0 }]] },
       'Prepare Correction Inserts': { main: [[{ node: 'Insert Correction Rows', type: 'main', index: 0 }]] },
       'Insert Correction Rows': { main: [[{ node: 'Restore Correction Response', type: 'main', index: 0 }]] },
+    },
+    settings: { executionOrder: 'v1', availableInMCP: true },
+  };
+}
+
+function buildEmailRuleSuggestionRestWorkflow(name) {
+  const config = {
+    github_owner: 'choicedrum-crypto',
+    github_repo: 'agentic-buildout-starter',
+    correction_table: 'inbox_classification_corrections',
+    audit_table: 'inbox_classifications',
+    workflow_version: name,
+    max_corrections: 25,
+    issue_labels: ['automation', 'codex-ready'],
+  };
+
+  const buildIssueCode = String.raw`
+const config = $('CONFIG').item.json.config || {};
+const rows = $input.all().map((item) => item.json).filter((row) => row.correction_id);
+
+function words(subject) {
+  return String(subject || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .split(/\s+/)
+    .filter((word) => word.length >= 4 && !['automatic', 'reply', 'client', 'file', 'request'].includes(word))
+    .slice(0, 6);
+}
+
+if (!rows.length) {
+  return [{ json: { config, has_suggestions: false, correction_ids: [], status: 'no_new_corrections' } }];
+}
+
+const groups = new Map();
+for (const row of rows) {
+  const key = [
+    row.sender_domain || 'unknown-domain',
+    row.predicted_category_label || row.predicted_quadrant || 'unknown-prediction',
+    row.observed_category_label || 'unknown-observed',
+  ].join('|');
+  const current = groups.get(key) || {
+    sender_domain: row.sender_domain || '',
+    predicted_category_label: row.predicted_category_label || '',
+    observed_category_label: row.observed_category_label || '',
+    count: 0,
+    subjects: [],
+    keywords: new Map(),
+  };
+  current.count += 1;
+  if (row.subject) current.subjects.push(String(row.subject).slice(0, 160));
+  for (const word of words(row.subject)) {
+    current.keywords.set(word, (current.keywords.get(word) || 0) + 1);
+  }
+  groups.set(key, current);
+}
+
+const suggestions = [...groups.values()]
+  .sort((a, b) => b.count - a.count)
+  .map((group) => {
+    const keywords = [...group.keywords.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([word]) => word);
+    return { ...group, keywords };
+  });
+
+const correctionIds = rows.map((row) => Number(row.correction_id)).filter(Number.isFinite);
+const lines = [
+  '## Goal',
+  'Update the Email Categorizer classifier rules using manual Outlook category corrections captured by the n8n feedback loop.',
+  '',
+  '## Suggested Rule Changes',
+  ...suggestions.flatMap((item, index) => [
+    '',
+    '### Suggestion ' + (index + 1),
+    '- Sender domain: ' + (item.sender_domain || 'mixed/unknown'),
+    '- Current prediction: ' + (item.predicted_category_label || 'unknown'),
+    '- Manual category: ' + (item.observed_category_label || 'unknown'),
+    '- Corrections observed: ' + item.count,
+    '- Subject keywords: ' + (item.keywords.length ? item.keywords.join(', ') : 'none'),
+    '- Example subjects:',
+    ...item.subjects.slice(0, 5).map((subject) => '  - ' + subject),
+  ]),
+  '',
+  '## Acceptance Criteria',
+  '- Implement a conservative classifier rule update in scripts/build-n8n-workflows.mjs only.',
+  '- Keep the workflow dry-run first; do not enable Outlook PATCH/category writes.',
+  '- Keep DBHub Ollama as Tier 3 fallback for ambiguous messages.',
+  '- Add or update focused validation for the rule behavior if practical.',
+  '- Open a PR against main through the standard Codex PR flow.',
+  '',
+  '## Safety',
+  '- Do not include secrets.',
+  '- Do not read email bodies or attachments.',
+  '- Do not deploy directly from Codex.',
+  '',
+  '## Automation Metadata',
+  'source_workflow: Email Categorizer Rule Suggestion',
+  'correction_ids: ' + correctionIds.join(','),
+  'workflow_version: ' + config.workflow_version,
+];
+
+return [{
+  json: {
+    config,
+    has_suggestions: true,
+    correction_ids: correctionIds,
+    issue_title: 'Email Categorizer suggested rule update - ' + new Date().toISOString().slice(0, 10),
+    issue_body: lines.join('\n'),
+  },
+}];
+`;
+
+  const prepareUpdateCode = String.raw`
+const source = $('Build Rule Suggestion Issue').item.json;
+const issue = $('Create Rule Suggestion Issue').item.json;
+const ids = (source.correction_ids || []).map(Number).filter(Number.isFinite);
+if (!ids.length) {
+  return [{ json: { query: "select 0::int as updated_rows" } }];
+}
+const issueUrl = issue.html_url || '';
+const issueNumber = issue.number || '';
+const notes = "Suggested rule issue #" + issueNumber + ": " + issueUrl;
+return [{
+  json: {
+    query:
+      "update inbox_classification_corrections set rule_suggestion_status = 'proposed', notes = " +
+      "'" + notes.replace(/'/g, "''") + "' where id in (" + ids.join(',') + ") and rule_suggestion_status = 'new' returning id",
+    issue_url: issueUrl,
+    issue_number: issueNumber,
+  },
+}];
+`;
+
+  return {
+    name,
+    nodes: [
+      {
+        parameters: {},
+        id: 'manual-trigger',
+        name: 'Manual Trigger',
+        type: 'n8n-nodes-base.manualTrigger',
+        typeVersion: 1,
+        position: [0, 0],
+      },
+      {
+        parameters: {
+          rule: { interval: [{ field: 'cronExpression', expression: '0 8 * * 1' }] },
+        },
+        id: 'weekly-schedule',
+        name: 'Weekly Schedule',
+        type: 'n8n-nodes-base.scheduleTrigger',
+        typeVersion: 1.2,
+        position: [0, 220],
+      },
+      {
+        parameters: {
+          mode: 'manual',
+          includeOtherFields: true,
+          assignments: {
+            assignments: [{ id: 'config-object', name: 'config', type: 'object', value: config }],
+          },
+        },
+        id: 'config',
+        name: 'CONFIG',
+        type: 'n8n-nodes-base.set',
+        typeVersion: 3.4,
+        position: [280, 120],
+      },
+      {
+        parameters: {
+          resource: 'database',
+          operation: 'executeQuery',
+          query:
+            "select c.id as correction_id, c.classification_id, c.message_id, c.predicted_quadrant, c.predicted_category_label, c.observed_category_label, c.detected_at, i.subject, i.sender, i.sender_domain, i.importance, i.has_attachments from inbox_classification_corrections c left join inbox_classifications i on i.id = c.classification_id where c.rule_suggestion_status = 'new' order by c.detected_at asc limit 25",
+          options: { queryBatching: 'independently' },
+        },
+        credentials: {
+          postgres: {
+            id: 'ksnKn12JiFB34IUU',
+            name: 'Email Categorizer Postgres',
+          },
+        },
+        id: 'load-new-corrections',
+        name: 'Load New Corrections',
+        type: 'n8n-nodes-base.postgres',
+        typeVersion: 2.6,
+        position: [560, 120],
+      },
+      {
+        parameters: {
+          mode: 'runOnceForAllItems',
+          language: 'javaScript',
+          jsCode: buildIssueCode,
+        },
+        id: 'build-rule-suggestion-issue',
+        name: 'Build Rule Suggestion Issue',
+        type: 'n8n-nodes-base.code',
+        typeVersion: 2,
+        position: [840, 120],
+      },
+      {
+        parameters: {
+          conditions: {
+            options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
+            conditions: [
+              {
+                leftValue: '={{ String($json.has_suggestions) }}',
+                operator: { type: 'string', operation: 'equals' },
+                rightValue: 'true',
+              },
+            ],
+            combinator: 'and',
+          },
+        },
+        id: 'has-rule-suggestions',
+        name: 'Has Rule Suggestions?',
+        type: 'n8n-nodes-base.if',
+        typeVersion: 2.3,
+        position: [1120, 120],
+      },
+      {
+        parameters: {
+          method: 'POST',
+          url: '={{ "https://api.github.com/repos/" + $json.config.github_owner + "/" + $json.config.github_repo + "/issues" }}',
+          authentication: 'genericCredentialType',
+          genericAuthType: 'httpHeaderAuth',
+          sendHeaders: true,
+          headerParameters: { parameters: [{ name: 'Accept', value: 'application/vnd.github+json' }, { name: 'Content-Type', value: 'application/json' }] },
+          sendBody: true,
+          contentType: 'json',
+          specifyBody: 'json',
+          jsonBody: '={{ JSON.stringify({ title: $json.issue_title, body: $json.issue_body, labels: $json.config.issue_labels }) }}',
+          options: {},
+        },
+        credentials: { httpHeaderAuth: { id: 'PINH6cogiqn4H9b9', name: 'GitHub HTTP Bearer' } },
+        id: 'create-rule-suggestion-issue',
+        name: 'Create Rule Suggestion Issue',
+        type: 'n8n-nodes-base.httpRequest',
+        typeVersion: 4.4,
+        position: [1400, 80],
+      },
+      {
+        parameters: {
+          method: 'POST',
+          url: '={{ "https://api.github.com/repos/" + $("Build Rule Suggestion Issue").item.json.config.github_owner + "/" + $("Build Rule Suggestion Issue").item.json.config.github_repo + "/issues/" + $json.number + "/comments" }}',
+          authentication: 'genericCredentialType',
+          genericAuthType: 'httpHeaderAuth',
+          sendHeaders: true,
+          headerParameters: { parameters: [{ name: 'Accept', value: 'application/vnd.github+json' }, { name: 'Content-Type', value: 'application/json' }] },
+          sendBody: true,
+          contentType: 'json',
+          specifyBody: 'json',
+          jsonBody:
+            '={{ JSON.stringify({ body: "@codex please implement this email categorizer rule suggestion. Use the issue body as the source of truth. Create a feature branch, update the classifier conservatively, run validation, and open a PR against main. Do not deploy directly from Codex." }) }}',
+          options: {},
+        },
+        credentials: { httpHeaderAuth: { id: 'PINH6cogiqn4H9b9', name: 'GitHub HTTP Bearer' } },
+        id: 'request-codex-rule-pr',
+        name: 'Request Codex Rule PR',
+        type: 'n8n-nodes-base.httpRequest',
+        typeVersion: 4.4,
+        position: [1680, 80],
+      },
+      {
+        parameters: {
+          mode: 'runOnceForAllItems',
+          language: 'javaScript',
+          jsCode: prepareUpdateCode,
+        },
+        id: 'prepare-correction-status-update',
+        name: 'Prepare Correction Status Update',
+        type: 'n8n-nodes-base.code',
+        typeVersion: 2,
+        position: [1960, 80],
+      },
+      {
+        parameters: {
+          resource: 'database',
+          operation: 'executeQuery',
+          query: '={{ $json.query }}',
+          options: { queryBatching: 'independently' },
+        },
+        credentials: {
+          postgres: {
+            id: 'ksnKn12JiFB34IUU',
+            name: 'Email Categorizer Postgres',
+          },
+        },
+        id: 'mark-corrections-proposed',
+        name: 'Mark Corrections Proposed',
+        type: 'n8n-nodes-base.postgres',
+        typeVersion: 2.6,
+        position: [2240, 80],
+      },
+    ],
+    connections: {
+      'Manual Trigger': { main: [[{ node: 'CONFIG', type: 'main', index: 0 }]] },
+      'Weekly Schedule': { main: [[{ node: 'CONFIG', type: 'main', index: 0 }]] },
+      CONFIG: { main: [[{ node: 'Load New Corrections', type: 'main', index: 0 }]] },
+      'Load New Corrections': { main: [[{ node: 'Build Rule Suggestion Issue', type: 'main', index: 0 }]] },
+      'Build Rule Suggestion Issue': { main: [[{ node: 'Has Rule Suggestions?', type: 'main', index: 0 }]] },
+      'Has Rule Suggestions?': { main: [[{ node: 'Create Rule Suggestion Issue', type: 'main', index: 0 }], []] },
+      'Create Rule Suggestion Issue': { main: [[{ node: 'Request Codex Rule PR', type: 'main', index: 0 }]] },
+      'Request Codex Rule PR': { main: [[{ node: 'Prepare Correction Status Update', type: 'main', index: 0 }]] },
+      'Prepare Correction Status Update': { main: [[{ node: 'Mark Corrections Proposed', type: 'main', index: 0 }]] },
     },
     settings: { executionOrder: 'v1', availableInMCP: true },
   };
@@ -2303,12 +2908,14 @@ function classify(message) {
   const sender = emailAddress(message.from).toLowerCase();
   const importance = String(message.importance || '').toLowerCase();
   const hasAttachments = Boolean(message.hasAttachments);
+  const githubActionsFailure = /github\.com$/.test(sender) && /\b(run failed|workflow failed|check suite failed|deploy after merge)\b/i.test(subject);
   const suspicious = /(wire|crypto|password|gift card|prize|urgent payment|bank|invoice)/i.test(subject) && (hasAttachments || /suspicious|unknown|external/.test(sender));
   const urgent = /(urgent|asap|today|escalation|blocked|down|outage|deadline)/i.test(subject) || importance === 'high';
   const planning = /(plan|planning|schedule|agenda|strategy|roadmap|next week|follow up)/i.test(subject);
   const delegate = /(delegate|assign|handoff|review requested|please review)/i.test(subject);
   const lowValue = /(newsletter|unsubscribe|promo|sale|digest|webinar)/i.test(subject);
 
+  if (githubActionsFailure) return { quadrant: 'Q4', tier_fired: 1, confidence: 0.86, reason: 'GitHub Actions failure notification is low-value automation noise for this mailbox.' };
   if (suspicious) return { quadrant: 'QR', tier_fired: 1, confidence: 0.9, reason: 'Suspicious financial/security language from external or attachment-bearing message.' };
   if (urgent) return { quadrant: 'Q1', tier_fired: 1, confidence: 0.82, reason: 'Urgent/high-importance metadata indicates do-now work.' };
   if (planning) return { quadrant: 'Q2', tier_fired: 1, confidence: 0.78, reason: 'Planning/scheduling language indicates important non-urgent work.' };
@@ -3711,6 +4318,12 @@ let workflows = [
     name: 'Email Categorizer Correction Review',
     description: 'Nightly dry-run companion that records manual Outlook category corrections against Email Categorizer audit rows.',
     restWorkflowBuilder: buildEmailCorrectionReviewRestWorkflow,
+    createAndSwapRest: true,
+  },
+  {
+    name: 'Email Categorizer Rule Suggestion',
+    description: 'Weekly companion that turns new manual correction rows into a GitHub/Codex rule-update request.',
+    restWorkflowBuilder: buildEmailRuleSuggestionRestWorkflow,
     createAndSwapRest: true,
   },
 ];

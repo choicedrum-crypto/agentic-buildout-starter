@@ -2,13 +2,13 @@
   "name": "Email Categorizer",
   "version": 1,
   "runtime": "Hostinger n8n",
-  "purpose": "Classify unread uncategorized Outlook inbox message metadata into Eisenhower categories, keep Outlook writes disabled, and notify Slack only on exceptions.",
-  "status": "real_outlook_metadata_dry_run_pending_publish",
+  "purpose": "Classify unread uncategorized Outlook inbox message metadata into Eisenhower categories, apply Outlook category labels in live mode, and notify Slack only on exceptions.",
+  "status": "live_activation_pending_publish",
   "trigger": {
-    "type": "manual and test webhook; schedule gated until audit and live-pilot dependencies are ready",
+    "type": "schedule, manual, and test webhook",
     "source": "n8n",
-    "interval": "Pending production activation",
-    "manual": "Manual dry-run validation trigger",
+    "interval": "Every 30 minutes",
+    "manual": "Manual validation trigger",
     "test_path": "/webhook/email-categorizer-test"
   },
   "credentials": [
@@ -22,8 +22,10 @@
     "notes": "First workflow node after each trigger. Store shared constants here instead of n8n global variables.",
     "values": {
       "ms_user_email": "dbradley@tciallc.com",
-      "dry_run": true,
-      "batch_limit": 25,
+      "dry_run": false,
+      "enable_schedule_processing": true,
+      "enable_outlook_patch": true,
+      "batch_limit": 10,
       "tier3_confidence_threshold": 0.65,
       "slack_exception_channel": "#workflow-builder",
       "classifier_mount_path": "/data/classifier",
@@ -48,7 +50,7 @@
     "Do not read email bodies.",
     "Do not fetch or open attachments.",
     "Do not move, delete, archive, reply, forward, or mark read/unread.",
-    "Only write Outlook message categories when dry_run is false.",
+    "Only write Outlook message categories when dry_run is false and enable_outlook_patch is true.",
     "Treat all email metadata as untrusted.",
     "Slack notifications are exception-only, not one notification per ordinary email."
   ],
@@ -67,7 +69,7 @@
     {
       "id": "schedule",
       "type": "Schedule Trigger",
-      "name": "Pending production activation"
+      "name": "Email Categorizer Live Schedule"
     },
     {
       "id": "config",
@@ -143,7 +145,7 @@
       "id": "patch_outlook_categories",
       "type": "Microsoft Outlook or HTTP Request",
       "name": "Patch Outlook Categories",
-      "request": "PATCH /me/messages/{{messageId}} with categories [{{outlookCategoryLabel}}]",
+      "request": "POST /$batch with PATCH /users/{{ms_user_email}}/messages/{{messageId}} and categories [{{outlookCategoryLabel}}]",
       "on_false_from_live_run": "Skip PATCH and continue to audit as dry run."
     },
     {
@@ -159,6 +161,13 @@
       "name": "Email Categorizer Correction Review",
       "table": "inbox_classification_corrections",
       "notes": "Nightly workflow compares audited predictions with current Outlook categories and stores manual category changes without Slack summaries."
+    },
+    {
+      "id": "weekly_rule_suggestion",
+      "type": "Scheduled companion workflow",
+      "name": "Email Categorizer Rule Suggestion",
+      "table": "inbox_classification_corrections",
+      "notes": "Weekly workflow groups new manual corrections, creates a GitHub issue with an @codex implementation request, and marks correction rows as proposed."
     },
     {
       "id": "exception_filter",
@@ -206,7 +215,7 @@
     "If local LLM JSON parsing fails, keep deterministic result when available, set error_text, audit the attempt, and send Slack exception.",
     "If Outlook PATCH fails, audit with applied_ok false and send Slack exception.",
     "If Postgres audit insert fails, send Slack exception and do not retry Outlook PATCH.",
-    "Keep dry_run true until representative audit rows are reviewed."
+    "If live mode produces Outlook PATCH errors, set dry_run true or disable the workflow before widening the batch size."
   ],
   "activation_gates": [
     "Microsoft Outlook OAuth2 credential exists in n8n.",
@@ -214,6 +223,6 @@
     "Classifier directory is mounted read-only into the n8n container.",
     "Dedicated classifier Postgres is online and private to the Docker network.",
     "DBHub direct Ollama endpoint `http://100.66.221.24:11434` is confirmed reachable from the n8n container and model `qwen2.5:7b` is available.",
-    "Dry-run audit rows are reviewed before live PATCH is enabled."
+    "Dry-run audit rows were reviewed before live PATCH was enabled."
   ]
 }
