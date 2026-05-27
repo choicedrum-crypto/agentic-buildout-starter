@@ -132,7 +132,8 @@ function buildEmailCategorizerRestWorkflow(name) {
     ms_user_email: 'dbradley@tciallc.com',
     dry_run: false,
     enable_schedule_processing: true,
-    batch_limit: 50,
+    batch_limit: 20,
+    outlook_fetch_limit: 50,
     tier3_confidence_threshold: 0.65,
     slack_exception_channel: '#workflow-builder',
     audit_table: 'inbox_classifications',
@@ -686,7 +687,7 @@ return [{
       {
         parameters: {
           method: 'GET',
-          url: '={{ "https://graph.microsoft.com/v1.0/users/" + $json.config.ms_user_email + "/mailFolders/inbox/messages?$top=" + Number($json.config.batch_limit || 25) + "&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime,importance,hasAttachments,categories,isRead&$filter=isRead eq false" }}',
+          url: '={{ "https://graph.microsoft.com/v1.0/users/" + $json.config.ms_user_email + "/mailFolders/inbox/messages?$top=" + Number($json.config.outlook_fetch_limit || $json.config.batch_limit || 25) + "&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime,importance,hasAttachments,categories,isRead&$filter=isRead eq false" }}',
           authentication: 'predefinedCredentialType',
           nodeCredentialType: 'microsoftOutlookOAuth2Api',
           sendHeaders: true,

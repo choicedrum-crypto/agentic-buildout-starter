@@ -25,7 +25,8 @@
       "dry_run": false,
       "enable_schedule_processing": true,
       "enable_outlook_patch": true,
-      "batch_limit": 50,
+      "batch_limit": 20,
+      "outlook_fetch_limit": 50,
       "tier3_confidence_threshold": 0.65,
       "slack_exception_channel": "#workflow-builder",
       "classifier_mount_path": "/data/classifier",
@@ -96,7 +97,7 @@
       "id": "get_unread_uncategorized",
       "type": "Microsoft Outlook or HTTP Request",
       "name": "Get Unread Uncategorized Inbox Messages",
-      "request": "GET /users/{{ms_user_email}}/mailFolders/inbox/messages?$top={{batch_limit}}&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime,importance,hasAttachments,categories,isRead&$filter=isRead eq false, then filter already-categorized messages in workflow code",
+      "request": "GET /users/{{ms_user_email}}/mailFolders/inbox/messages?$top={{outlook_fetch_limit}}&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime,importance,hasAttachments,categories,isRead&$filter=isRead eq false, then filter already-categorized messages in workflow code and process up to {{batch_limit}} uncategorized messages",
       "notes": "Select metadata only. Do not request body, bodyPreview, uniqueBody, or attachments."
     },
     {
