@@ -132,7 +132,7 @@ function buildEmailCategorizerRestWorkflow(name) {
     ms_user_email: 'dbradley@tciallc.com',
     dry_run: false,
     enable_schedule_processing: true,
-    batch_limit: 10,
+    batch_limit: 50,
     tier3_confidence_threshold: 0.65,
     slack_exception_channel: '#workflow-builder',
     audit_table: 'inbox_classifications',
@@ -639,7 +639,7 @@ return [{
       {
         parameters: {
           rule: {
-            interval: [{ field: 'minutes', minutesInterval: 30 }],
+            interval: [{ field: 'minutes', minutesInterval: 5 }],
           },
         },
         id: 'email-categorizer-live-schedule',
