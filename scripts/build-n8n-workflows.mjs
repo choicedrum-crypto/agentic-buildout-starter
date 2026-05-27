@@ -1544,13 +1544,28 @@ return [{
   };
 }
 
+async function listPublishedRestWorkflows(baseName) {
+  const matches = [];
+  let cursor;
+  do {
+    const params = new URLSearchParams({ limit: '100' });
+    if (cursor) {
+      params.set('cursor', cursor);
+    }
+    const page = await n8nApi('GET', `/workflows?${params.toString()}`);
+    matches.push(
+      ...((page.data || []).filter(
+        (workflowItem) =>
+          workflowItem.id && (workflowItem.name === baseName || workflowItem.name.startsWith(`${baseName} - Published `)),
+      )),
+    );
+    cursor = page.nextCursor;
+  } while (cursor);
+  return matches;
+}
+
 async function createEmailWorkflowViaRest(name) {
-  const existing = await n8nApi('GET', `/workflows?name=${encodeURIComponent('Email Categorizer')}&limit=100`);
-  const previous = (existing.data || []).filter(
-    (workflowItem) =>
-      workflowItem.id &&
-      (workflowItem.name === 'Email Categorizer' || workflowItem.name.startsWith('Email Categorizer - Published ')),
-  );
+  const previous = await listPublishedRestWorkflows('Email Categorizer');
   for (const workflowItem of previous) {
     if (workflowItem.active) {
       await n8nApi('POST', `/workflows/${workflowItem.id}/deactivate`);
@@ -1564,10 +1579,7 @@ async function createEmailWorkflowViaRest(name) {
 }
 
 async function createRestWorkflowViaRest(baseName, publishedName, builder) {
-  const existing = await n8nApi('GET', `/workflows?name=${encodeURIComponent(baseName)}&limit=100`);
-  const previous = (existing.data || []).filter(
-    (workflowItem) => workflowItem.id && (workflowItem.name === baseName || workflowItem.name.startsWith(`${baseName} - Published `)),
-  );
+  const previous = await listPublishedRestWorkflows(baseName);
   for (const workflowItem of previous) {
     if (workflowItem.active) {
       await n8nApi('POST', `/workflows/${workflowItem.id}/deactivate`);
