@@ -20,7 +20,7 @@
   "core_logic": [
     "Parse the Slack interaction payload and action value.",
     "Require pr_number for every action.",
-    "On approve, call the GitHub pull request merge endpoint using a dedicated GitHub HTTP bearer credential.",
+    "On approve, acknowledge Slack immediately, request a GitHub PR branch update, wait for required checks, then call the GitHub pull request merge endpoint using a dedicated GitHub HTTP bearer credential.",
     "On request_changes, comment on the PR with a /codex revise request.",
     "On block, comment on the PR and stop automation.",
     "Return a compact webhook acknowledgement to Slack."
@@ -34,6 +34,8 @@
   "safe_failure_handling": [
     "Only merge when the PR number is present.",
     "GitHub branch protection remains the final gate; failed required checks prevent merge.",
+    "Strict branch protection is handled by updating the PR branch before merge and allowing required checks time to attach.",
+    "An already-current PR branch response is allowed to continue into the merge path.",
     "Do not send routine Slack messages from this workflow.",
     "Deployment result workflow owns the completion notification."
   ]
