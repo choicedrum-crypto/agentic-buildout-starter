@@ -492,7 +492,7 @@ if (!mailbox) {
 const requests = results
   .map((result, index) => {
     const label = config.outlook_category_map?.[result.quadrant] || result.outlook_category_label || auditRows[index]?.outlook_category_label;
-    if (!result.message_id || !label || result.error_text) return null;
+    if (!result.message_id || !label) return null;
     const categories = Array.from(new Set([...(Array.isArray(result.categories) ? result.categories : []), label]));
     return {
       id: String(index),

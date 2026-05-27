@@ -211,8 +211,8 @@
   },
   "safe_failure_handling": [
     "If Outlook categories cannot be discovered or mapped, stop before fetching messages.",
-    "If the DBHub Ollama call fails, keep deterministic result when available, set error_text, audit the attempt, and send Slack exception.",
-    "If local LLM JSON parsing fails, keep deterministic result when available, set error_text, audit the attempt, and send Slack exception.",
+    "If the DBHub Ollama call fails, keep the deterministic fallback category, still apply that Outlook category when live patching is enabled, set error_text, audit the attempt, and send Slack exception.",
+    "If local LLM JSON parsing fails, keep the deterministic fallback category, still apply that Outlook category when live patching is enabled, set error_text, audit the attempt, and send Slack exception.",
     "If Outlook PATCH fails, audit with applied_ok false and send Slack exception.",
     "If Postgres audit insert fails, send Slack exception and do not retry Outlook PATCH.",
     "If live mode produces Outlook PATCH errors, set dry_run true or disable the workflow before widening the batch size."
