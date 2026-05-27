@@ -133,7 +133,7 @@ function buildEmailCategorizerRestWorkflow(name) {
     dry_run: false,
     enable_schedule_processing: true,
     batch_limit: 20,
-    outlook_fetch_limit: 50,
+    outlook_fetch_limit: 100,
     tier3_confidence_threshold: 0.65,
     slack_exception_channel: '#workflow-builder',
     audit_table: 'inbox_classifications',
