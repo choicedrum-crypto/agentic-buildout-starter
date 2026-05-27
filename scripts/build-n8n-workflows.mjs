@@ -4359,6 +4359,7 @@ let workflows = [
   },
   {
     name: 'GitHub Issue to Codex Dispatch',
+    workflowId: 'yJTJms6yB6IUQOwf',
     code: codexDispatchWorkflow,
     description: 'Claims Codex-ready GitHub issues from Plane and dispatches them to the Codex build entrypoint.',
   },
@@ -4370,6 +4371,7 @@ let workflows = [
   },
   {
     name: 'Slack Approval to Merge',
+    workflowId: '7Wun2AzHoSy0vgSJ',
     code: slackApprovalWorkflow,
     description: 'Receives Slack approval decisions, merges approved PRs, or queues requested changes.',
   },
