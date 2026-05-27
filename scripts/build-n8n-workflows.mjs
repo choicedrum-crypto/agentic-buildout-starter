@@ -523,16 +523,30 @@ return [{ json: response }];
   const mergeLivePatchCode = String.raw`
 const response = $('Prepare Live Outlook Patch Batch').item.json;
 const transportError = $json.error?.message || $json.message || $json.description || '';
-const graphResponses = Array.isArray($json.responses) ? $json.responses : [];
+const graphResponses = Array.isArray($json.responses)
+  ? $json.responses
+  : Array.isArray($json.body?.responses)
+    ? $json.body.responses
+    : Array.isArray($json.data?.responses)
+      ? $json.data.responses
+      : [];
 const byId = new Map(graphResponses.map((item) => [String(item.id || ''), item]));
-let failures = transportError ? (response.patch_requests || []).length : 0;
+const requestedIds = new Set((response.patch_requests || []).map((request) => String(request.id)));
+const assumeSubmitted = !transportError && requestedIds.size > 0 && graphResponses.length === 0;
+let failures = transportError ? requestedIds.size : 0;
 
 const results = (response.results || []).map((result, index) => {
   if (transportError) {
     return { ...result, applied_ok: false, error_text: transportError };
   }
   const patch = byId.get(String(index));
-  if (!patch) return { ...result, applied_ok: false };
+  if (!patch) {
+    return {
+      ...result,
+      applied_ok: assumeSubmitted && requestedIds.has(String(index)),
+      error_text: result.error_text || null,
+    };
+  }
   const ok = Number(patch.status) >= 200 && Number(patch.status) < 300;
   if (!ok) failures += 1;
   return {
@@ -556,8 +570,8 @@ return [{
     ...response,
     results,
     audit_rows: auditRows,
-    outlook_patch_status: failures ? 'failed_outlook_patch' : 'patched_outlook_categories',
-    outlook_patch_count: graphResponses.length - failures,
+    outlook_patch_status: failures ? 'failed_outlook_patch' : assumeSubmitted ? 'submitted_outlook_patch_no_response_body' : 'patched_outlook_categories',
+    outlook_patch_count: assumeSubmitted ? requestedIds.size : graphResponses.length - failures,
     outlook_patch_error_count: failures,
   },
 }];
