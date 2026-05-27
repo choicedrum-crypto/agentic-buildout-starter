@@ -26,7 +26,7 @@
       "enable_schedule_processing": true,
       "enable_outlook_patch": true,
       "batch_limit": 20,
-      "outlook_fetch_limit": 50,
+      "outlook_fetch_limit": 100,
       "tier3_confidence_threshold": 0.65,
       "slack_exception_channel": "#workflow-builder",
       "classifier_mount_path": "/data/classifier",
