@@ -414,7 +414,8 @@ if (!rows.length) {
 
 function sql(value) {
   if (value === null || value === undefined || value === '') return 'NULL';
-  return "'" + String(value).replace(/'/g, "''").replace(/\$/g, () => '$$') + "'";
+  const parts = String(value).split('$').map((part) => "'" + part.replace(/'/g, "''") + "'");
+  return '(' + parts.join(' || chr(36) || ') + ')';
 }
 
 function sqlJson(value) {
@@ -1028,7 +1029,8 @@ const categoryLabels = new Set(config.outlook_category_labels || []);
 
 function sql(value) {
   if (value === null || value === undefined || value === '') return 'NULL';
-  return "'" + String(value).replace(/'/g, "''").replace(/\$/g, () => '$$') + "'";
+  const parts = String(value).split('$').map((part) => "'" + part.replace(/'/g, "''") + "'");
+  return '(' + parts.join(' || chr(36) || ') + ')';
 }
 
 const corrections = [];
