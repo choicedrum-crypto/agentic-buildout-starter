@@ -3394,33 +3394,39 @@ const resolvePlaneContext = node({
 const base = $('Extract Deployment Context').item.json;
 const value = $json || {};
 const pr = Array.isArray(value) ? (value[0] || {}) : value;
-const text = [
+const prText = [pr.title || '', pr.body || ''].join('\\\\n');
+const eventText = [
   base.plane_issue_id || '',
   base.plane_url || '',
   base.body?.workflow_run?.display_title || '',
   base.body?.workflow_run?.head_commit?.message || '',
-  pr.title || '',
-  pr.body || '',
 ].join('\\\\n');
+const text = [prText, eventText].join('\\\\n');
+const explicitPlaneProjectId =
+  prText.match(/plane_project_id:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] ||
+  prText.match(/Plane Project ID:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] ||
+  '';
+const projectIdFromPlaneUrl = text.match(/app\\\\.plane\\\\.so\\\\/[^\\\\s/]+\\\\/projects\\\\/([A-Za-z0-9_-]+)/i)?.[1] || '';
 const planeIssueId =
+  prText.match(/plane_issue_id:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] ||
+  prText.match(/Plane ID:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] ||
   base.plane_issue_id ||
-  text.match(/plane_issue_id:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] ||
-  text.match(/Plane ID:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] ||
   '';
 const planeProjectId =
+  explicitPlaneProjectId ||
+  projectIdFromPlaneUrl ||
   base.plane_project_id ||
-  text.match(/plane_project_id:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] ||
-  text.match(/Plane Project ID:\\\\s*([A-Za-z0-9_-]+)/i)?.[1] ||
   base.config.plane_project_id ||
   '';
 const planeUrl = base.plane_url || text.match(/https?:\\\\/\\\\/[^\\\\s)"]*plane[^\\\\s)"]*/i)?.[0] || '';
 const prUrl = pr.html_url || (base.pr_number ? 'https://github.com/' + base.config.github_owner + '/' + base.config.github_repo + '/pull/' + base.pr_number : '');
 const githubIssueNumber =
-  text.match(new RegExp('issues/([0-9]+)', 'i'))?.[1] ||
-  text.match(new RegExp('Related GitHub issue:[^#]*#([0-9]+)', 'i'))?.[1] ||
-  text.match(new RegExp('GitHub issue:[^#]*#([0-9]+)', 'i'))?.[1] ||
-  text.match(new RegExp('Fixes[^#]*#([0-9]+)', 'i'))?.[1] ||
-  text.match(new RegExp('Closes[^#]*#([0-9]+)', 'i'))?.[1] ||
+  prText.match(/github_issue_number:\\\\s*(\\\\d+)/i)?.[1] ||
+  prText.match(/github\\\\.com\\\\/[^\\\\s/]+\\\\/[^\\\\s/]+\\\\/issues\\\\/(\\\\d+)/i)?.[1] ||
+  prText.match(new RegExp('Related GitHub issue:[^#]*#([0-9]+)', 'i'))?.[1] ||
+  prText.match(new RegExp('GitHub issue:[^#]*#([0-9]+)', 'i'))?.[1] ||
+  prText.match(new RegExp('Fixes[^#]*#([0-9]+)', 'i'))?.[1] ||
+  prText.match(new RegExp('Closes[^#]*#([0-9]+)', 'i'))?.[1] ||
   '';
 const message = [
   'Deployment ' + (base.success ? 'succeeded' : 'failed'),
