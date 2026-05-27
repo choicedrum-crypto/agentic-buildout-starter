@@ -1955,7 +1955,7 @@ const commentPlane = node({
     name: 'Comment on Plane with GitHub Issue',
     alwaysOutputData: true,
     continueOnFail: true,
-    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}', 'httpHeaderAuth') },
     parameters: {
       method: 'POST',
       url: expr('{{ $("Normalize Plane Payload").item.json.config.plane_api_base_url + "/api/v1/workspaces/" + $("Normalize Plane Payload").item.json.config.plane_workspace_slug + "/projects/" + $("Normalize Plane Payload").item.json.plane_project_id + "/work-items/" + $("Normalize Plane Payload").item.json.plane_issue_id + "/comments/" }}'),
@@ -2110,7 +2110,7 @@ const updatePlaneReview = node({
     name: 'Move Plane to Review',
     alwaysOutputData: true,
     continueOnFail: true,
-    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}', 'httpHeaderAuth') },
     parameters: {
       method: 'PATCH',
       url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.plane_project_id + "/work-items/" + $json.plane_issue_id + "/" }}'),
@@ -2131,7 +2131,7 @@ const listPlaneReviewStates = node({
   version: 4.4,
   config: {
     name: 'List Plane Review States',
-    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}', 'httpHeaderAuth') },
     parameters: {
       method: 'GET',
       url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.plane_project_id + "/states/" }}'),
@@ -2174,7 +2174,7 @@ const commentPlaneReview = node({
     name: 'Comment on Plane with PR Review Link',
     alwaysOutputData: true,
     continueOnFail: true,
-    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}', 'httpHeaderAuth') },
     parameters: {
       method: 'POST',
       url: expr('{{ $("Extract PR Review Context").item.json.config.plane_api_base_url + "/api/v1/workspaces/" + $("Extract PR Review Context").item.json.config.plane_workspace_slug + "/projects/" + $("Extract PR Review Context").item.json.plane_project_id + "/work-items/" + $("Extract PR Review Context").item.json.plane_issue_id + "/comments/" }}'),
@@ -2389,7 +2389,7 @@ const updatePlane = node({
     name: 'Move Plane to In Progress',
     alwaysOutputData: true,
     continueOnFail: true,
-    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}', 'httpHeaderAuth') },
     parameters: {
       method: 'PATCH',
       url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.config.plane_project_id + "/work-items/" + $json.plane_issue_id + "/" }}'),
@@ -2412,7 +2412,7 @@ const commentPlane = node({
     name: 'Comment on Plane with Revision Request',
     alwaysOutputData: true,
     continueOnFail: true,
-    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}', 'httpHeaderAuth') },
     parameters: {
       method: 'POST',
       url: expr('{{ $("Resolve Revision Context").item.json.config.plane_api_base_url + "/api/v1/workspaces/" + $("Resolve Revision Context").item.json.config.plane_workspace_slug + "/projects/" + $("Resolve Revision Context").item.json.config.plane_project_id + "/work-items/" + $("Resolve Revision Context").item.json.plane_issue_id + "/comments/" }}'),
@@ -3449,7 +3449,7 @@ const listPlaneDeploymentStates = node({
   version: 4.4,
   config: {
     name: 'List Plane Deployment States',
-    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}', 'httpHeaderAuth') },
     parameters: {
       method: 'GET',
       url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.plane_project_id + "/states/" }}'),
@@ -3493,7 +3493,7 @@ const updatePlane = node({
   config: {
     name: 'Update Plane Status',
     alwaysOutputData: true,
-    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}', 'httpHeaderAuth') },
     parameters: {
       method: 'PATCH',
       url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.plane_project_id + "/work-items/" + $json.plane_issue_id + "/" }}'),
@@ -3516,7 +3516,7 @@ const commentPlaneDeployment = node({
     name: 'Comment on Plane with Deployment Result',
     alwaysOutputData: true,
     continueOnFail: true,
-    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}', 'httpHeaderAuth') },
     parameters: {
       method: 'POST',
       url: expr('{{ $("Resolve Plane Context").item.json.config.plane_api_base_url + "/api/v1/workspaces/" + $("Resolve Plane Context").item.json.config.plane_workspace_slug + "/projects/" + $("Resolve Plane Context").item.json.plane_project_id + "/work-items/" + $("Resolve Plane Context").item.json.plane_issue_id + "/comments/" }}'),
@@ -3787,7 +3787,7 @@ const listPlaneBuildingStates = node({
     name: 'List Plane Building States',
     alwaysOutputData: true,
     continueOnFail: true,
-    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}', 'httpHeaderAuth') },
     parameters: {
       method: 'GET',
       url: expr('{{ $("Extract Dispatch Context").item.json.config.plane_api_base_url + "/api/v1/workspaces/" + $("Extract Dispatch Context").item.json.config.plane_workspace_slug + "/projects/" + $("Extract Dispatch Context").item.json.plane_project_id + "/states/" }}'),
@@ -3824,7 +3824,7 @@ const movePlaneBuilding = node({
     name: 'Move Plane to Building',
     alwaysOutputData: true,
     continueOnFail: true,
-    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}') },
+    credentials: { httpHeaderAuth: newCredential('${planeApiCredential}', 'httpHeaderAuth') },
     parameters: {
       method: 'PATCH',
       url: expr('{{ $json.config.plane_api_base_url + "/api/v1/workspaces/" + $json.config.plane_workspace_slug + "/projects/" + $json.plane_project_id + "/work-items/" + $json.plane_issue_id + "/" }}'),
