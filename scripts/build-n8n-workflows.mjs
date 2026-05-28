@@ -688,7 +688,7 @@ return [{
       {
         parameters: {
           method: 'GET',
-          url: '={{ "https://graph.microsoft.com/v1.0/users/" + $json.config.ms_user_email + "/mailFolders/inbox/messages?$top=" + Number($json.config.outlook_fetch_limit || $json.config.batch_limit || 25) + "&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime,importance,hasAttachments,categories,isRead" + ($json.config.include_read_messages === true ? "" : "&$filter=isRead eq false") }}',
+          url: '={{ "https://graph.microsoft.com/v1.0/users/" + $json.config.ms_user_email + "/mailFolders/inbox/messages?$top=" + Number($json.config.outlook_fetch_limit || $json.config.batch_limit || 25) + "&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime,importance,hasAttachments,categories,isRead&$orderby=receivedDateTime desc" + ($json.config.include_read_messages === true ? "" : "&$filter=isRead eq false") }}',
           authentication: 'predefinedCredentialType',
           nodeCredentialType: 'microsoftOutlookOAuth2Api',
           sendHeaders: true,
