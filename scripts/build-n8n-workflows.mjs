@@ -161,11 +161,15 @@ const config = $json.config || {};
 const body = $json.body || $json;
 const supplied = Array.isArray(body.messages) ? body.messages : [];
 const outlookMessages = Array.isArray($json.messages) ? $json.messages : [];
+const inputMode = String($json.mode || '');
+const isOutlookMode = inputMode.startsWith('outlook_metadata_');
 const messages = supplied.length
   ? supplied
   : outlookMessages.length
     ? outlookMessages
-    : [{
+    : isOutlookMode
+      ? []
+      : [{
       id: 'sample-1',
       internetMessageId: '<sample-1@dry-run>',
       subject: 'Urgent customer credit hold escalation',
@@ -224,7 +228,7 @@ const needsTier3 = baseResults.filter((result) => result.confidence < config.tie
 return [{
   json: {
     config,
-    mode: supplied.length ? 'provided_messages' : outlookMessages.length ? (config.dry_run ? 'outlook_metadata_dry_run' : 'outlook_metadata_live') : 'sample',
+    mode: supplied.length ? 'provided_messages' : (outlookMessages.length || isOutlookMode) ? (config.dry_run ? 'outlook_metadata_dry_run' : 'outlook_metadata_live') : 'sample',
     fetched_unread_count: Number($json.fetched_unread_count || 0),
     skipped_already_categorized_count: Number($json.skipped_already_categorized_count || 0),
     base_results: baseResults,
