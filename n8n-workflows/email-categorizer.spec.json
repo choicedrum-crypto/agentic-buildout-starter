@@ -2,7 +2,7 @@
   "name": "Email Categorizer",
   "version": 1,
   "runtime": "Hostinger n8n",
-  "purpose": "Classify unread uncategorized Outlook inbox message metadata into Eisenhower categories, apply Outlook category labels in live mode, and notify Slack only on exceptions.",
+  "purpose": "Classify uncategorized Outlook inbox message metadata into Eisenhower categories, apply Outlook category labels in live mode, and notify Slack only on exceptions.",
   "status": "live_activation_pending_publish",
   "trigger": {
     "type": "schedule, manual, and test webhook",
@@ -27,6 +27,7 @@
       "enable_outlook_patch": true,
       "batch_limit": 20,
       "outlook_fetch_limit": 100,
+      "include_read_messages": true,
       "tier3_confidence_threshold": 0.65,
       "slack_exception_channel": "#workflow-builder",
       "classifier_mount_path": "/data/classifier",
@@ -94,10 +95,10 @@
       "on_failure": "Send Slack exception and stop before reading messages."
     },
     {
-      "id": "get_unread_uncategorized",
+      "id": "get_uncategorized_inbox",
       "type": "Microsoft Outlook or HTTP Request",
-      "name": "Get Unread Uncategorized Inbox Messages",
-      "request": "GET /users/{{ms_user_email}}/mailFolders/inbox/messages?$top={{outlook_fetch_limit}}&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime,importance,hasAttachments,categories,isRead&$filter=isRead eq false, then filter already-categorized messages in workflow code and process up to {{batch_limit}} uncategorized messages",
+      "name": "Get Uncategorized Inbox Messages",
+      "request": "GET /users/{{ms_user_email}}/mailFolders/inbox/messages?$top={{outlook_fetch_limit}}&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime,importance,hasAttachments,categories,isRead, then filter already-categorized messages in workflow code and process up to {{batch_limit}} uncategorized messages",
       "notes": "Select metadata only. Do not request body, bodyPreview, uniqueBody, or attachments."
     },
     {

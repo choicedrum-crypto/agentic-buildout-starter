@@ -134,6 +134,7 @@ function buildEmailCategorizerRestWorkflow(name) {
     enable_schedule_processing: true,
     batch_limit: 20,
     outlook_fetch_limit: 100,
+    include_read_messages: true,
     tier3_confidence_threshold: 0.65,
     slack_exception_channel: '#workflow-builder',
     audit_table: 'inbox_classifications',
@@ -687,7 +688,7 @@ return [{
       {
         parameters: {
           method: 'GET',
-          url: '={{ "https://graph.microsoft.com/v1.0/users/" + $json.config.ms_user_email + "/mailFolders/inbox/messages?$top=" + Number($json.config.outlook_fetch_limit || $json.config.batch_limit || 25) + "&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime,importance,hasAttachments,categories,isRead&$filter=isRead eq false" }}',
+          url: '={{ "https://graph.microsoft.com/v1.0/users/" + $json.config.ms_user_email + "/mailFolders/inbox/messages?$top=" + Number($json.config.outlook_fetch_limit || $json.config.batch_limit || 25) + "&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime,importance,hasAttachments,categories,isRead" + ($json.config.include_read_messages === true ? "" : "&$filter=isRead eq false") }}',
           authentication: 'predefinedCredentialType',
           nodeCredentialType: 'microsoftOutlookOAuth2Api',
           sendHeaders: true,
@@ -700,8 +701,8 @@ return [{
             name: 'Microsoft Outlook account',
           },
         },
-        id: 'get-unread-outlook-metadata',
-        name: 'Get Unread Outlook Metadata',
+        id: 'get-inbox-outlook-metadata',
+        name: 'Get Inbox Outlook Metadata',
         type: 'n8n-nodes-base.httpRequest',
         typeVersion: 4.4,
         position: [840, 260],
@@ -933,10 +934,10 @@ return [{
       'Use Provided Or Sample?': {
         main: [
           [{ node: 'Prepare Dry Run Classification', type: 'main', index: 0 }],
-          [{ node: 'Get Unread Outlook Metadata', type: 'main', index: 0 }],
+          [{ node: 'Get Inbox Outlook Metadata', type: 'main', index: 0 }],
         ],
       },
-      'Get Unread Outlook Metadata': { main: [[{ node: 'Normalize Outlook Metadata', type: 'main', index: 0 }]] },
+      'Get Inbox Outlook Metadata': { main: [[{ node: 'Normalize Outlook Metadata', type: 'main', index: 0 }]] },
       'Normalize Outlook Metadata': { main: [[{ node: 'Prepare Dry Run Classification', type: 'main', index: 0 }]] },
       'Prepare Dry Run Classification': { main: [[{ node: 'Needs DBHub Ollama Tier 3?', type: 'main', index: 0 }]] },
       'Needs DBHub Ollama Tier 3?': {
@@ -4398,7 +4399,7 @@ let workflows = [
     workflowId: 'KeM4JZWK01qt532V',
     code: emailCategorizerWorkflow,
     description: 'Dry-run-first Outlook Eisenhower classifier workflow with safe test webhook and production activation gates.',
-    verifyContains: ['dbradley@tciallc.com', 'Get Unread Uncategorized Outlook Metadata', 'dbhub_ollama', 'DBHub Ollama Tier 3 Metadata Classifier'],
+    verifyContains: ['dbradley@tciallc.com', 'Get Inbox Outlook Metadata', 'dbhub_ollama', 'DBHub Ollama Tier 3 Metadata Classifier'],
     createAndSwap: true,
   },
   {
