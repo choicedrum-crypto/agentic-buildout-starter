@@ -657,6 +657,23 @@ return [{
       },
       {
         parameters: {
+          method: 'POST',
+          url: 'https://n8n.tradecredit.agency/webhook/email-categorizer-test',
+          sendBody: true,
+          contentType: 'json',
+          specifyBody: 'json',
+          jsonBody: '={{ JSON.stringify({ use_outlook: true, source: "schedule" }) }}',
+          options: {},
+        },
+        id: 'run-email-categorizer-webhook-from-schedule',
+        name: 'Run Email Categorizer Webhook From Schedule',
+        type: 'n8n-nodes-base.httpRequest',
+        typeVersion: 4.4,
+        position: [280, -120],
+        continueOnFail: true,
+      },
+      {
+        parameters: {
           mode: 'manual',
           includeOtherFields: true,
           assignments: {
@@ -933,7 +950,7 @@ return [{
     connections: {
       'Manual Test Trigger': { main: [[{ node: 'CONFIG', type: 'main', index: 0 }]] },
       'Email Categorizer Test Webhook': { main: [[{ node: 'CONFIG', type: 'main', index: 0 }]] },
-      'Email Categorizer Live Schedule': { main: [[{ node: 'CONFIG', type: 'main', index: 0 }]] },
+      'Email Categorizer Live Schedule': { main: [[{ node: 'Run Email Categorizer Webhook From Schedule', type: 'main', index: 0 }]] },
       CONFIG: { main: [[{ node: 'Use Provided Or Sample?', type: 'main', index: 0 }]] },
       'Use Provided Or Sample?': {
         main: [
