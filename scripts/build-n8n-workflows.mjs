@@ -152,7 +152,6 @@ function buildEmailCategorizerRestWorkflow(name) {
       Q2: 'Q2: Schedule',
       Q3: 'Q3: Delegate',
       Q4: 'Q4: Eliminate',
-      QR: 'QR: Quarantine',
     },
   };
 
@@ -204,7 +203,7 @@ function deterministic(message) {
   if (/(automatic reply|property sold|neighborhood alert|conference|now live|cooler, calmer home|plex pass|newsletter|unsubscribe|promotion|promo|discount|digest|webinar)/.test(subject) || /(neighborhoodalerts\.com|m\.plex\.tv|gie\.net|connect\.fergusonhome\.com|email\.openai\.com|amazon\.com|acquisition\.com)$/.test(domain) || /no-reply|noreply/.test(sender)) {
     return { quadrant: 'Q4', confidence: 0.84, tier_fired: 2, reason: 'Low-value alert, pricing, digest, or promotional metadata.' };
   }
-  return { quadrant: 'QR', confidence: 0.4, tier_fired: 2, reason: 'Needs local LLM metadata review.' };
+  return { quadrant: 'Q2', confidence: 0.4, tier_fired: 2, reason: 'Ambiguous metadata; defaulting to schedule/review and letting manual corrections calibrate future rules.' };
 }
 
 const baseResults = messages.map((message, index) => {
@@ -240,12 +239,12 @@ return [{
       messages: [
         {
           role: 'system',
-          content: 'Classify email metadata into Q1, Q2, Q3, Q4, or QR. Return strict JSON only: {"results":[{"key":"m0","quadrant":"Q1","confidence":0.0,"reason":"..."}]}. Echo the short key exactly.',
+          content: 'Classify email metadata into Q1, Q2, Q3, or Q4. You must choose one of the four categories; do not return quarantine/unknown/needs review. Return strict JSON only: {"results":[{"key":"m0","quadrant":"Q1","confidence":0.0,"reason":"..."}]}. Echo the short key exactly.',
         },
         {
           role: 'user',
           content: JSON.stringify({
-            allowed_quadrants: ['Q1', 'Q2', 'Q3', 'Q4', 'QR'],
+            allowed_quadrants: ['Q1', 'Q2', 'Q3', 'Q4'],
             messages: needsTier3.map((result) => ({
               key: result.tier3_key,
               subject: result.subject,
@@ -322,7 +321,7 @@ if (needsTier3Count) {
   }
 }
 
-const allowed = new Set(['Q1', 'Q2', 'Q3', 'Q4', 'QR']);
+const allowed = new Set(['Q1', 'Q2', 'Q3', 'Q4']);
 const byKey = new Map();
 for (const result of tier3Results) {
   for (const key of [result.key, result.message_id, result.internet_message_id]) {
@@ -343,7 +342,7 @@ const results = baseResults.map((result) => {
     tier3 = tier3Results[tier3OrderIndex];
   }
   tier3OrderIndex += 1;
-  const quadrant = String(tier3?.quadrant || tier3?.category || tier3?.label || '').toUpperCase().replace(/^.*(Q[1-4]|QR).*$/, '$1');
+  const quadrant = String(tier3?.quadrant || tier3?.category || tier3?.label || '').toUpperCase().replace(/^.*(Q[1-4]).*$/, '$1');
   if (!tier3 || !allowed.has(quadrant)) {
     const missingError = !tier3
       ? 'Ollama did not return a matching key for this message.'
@@ -1002,7 +1001,7 @@ function buildEmailCorrectionReviewRestWorkflow(name) {
     lookback_days: 7,
     batch_limit: 20,
     workflow_version: name,
-    outlook_category_labels: ['Q1: Do Now', 'Q2: Schedule', 'Q3: Delegate', 'Q4: Eliminate', 'QR: Quarantine'],
+    outlook_category_labels: ['Q1: Do Now', 'Q2: Schedule', 'Q3: Delegate', 'Q4: Eliminate'],
   };
 
   const buildBatchCode = String.raw`
@@ -2760,7 +2759,7 @@ const config = node({
       includeOtherFields: true,
       assignments: {
         assignments: [
-          { id: 'config-object', name: 'config', type: 'object', value: expr('{{ { dry_run: true, enable_schedule_processing: false, enable_outlook_patch: false, batch_limit: 25, tier3_confidence_threshold: 0.65, slack_exception_channel: "#workflow-builder", audit_table: "inbox_classifications", ms_user_email: "dbradley@tciallc.com", classifier_mount_path: "/data/classifier", tier3_provider: "dbhub_ollama", local_llm_base_url: "http://100.66.221.24:11434", local_llm_model: "qwen2.5:7b", enable_tier3_local_llm: true, outlook_category_map: { Q1: "Q1: Do Now", Q2: "Q2: Schedule", Q3: "Q3: Delegate", Q4: "Q4: Eliminate", QR: "QR: Quarantine" }, readiness: { outlook_credential: "Microsoft Outlook account", postgres_credential: "pending", local_llm: "direct Ollama Tier 3 enabled for dry-run metadata classification" } } }}') }
+          { id: 'config-object', name: 'config', type: 'object', value: expr('{{ { dry_run: true, enable_schedule_processing: false, enable_outlook_patch: false, batch_limit: 25, tier3_confidence_threshold: 0.65, slack_exception_channel: "#workflow-builder", audit_table: "inbox_classifications", ms_user_email: "dbradley@tciallc.com", classifier_mount_path: "/data/classifier", tier3_provider: "dbhub_ollama", local_llm_base_url: "http://100.66.221.24:11434", local_llm_model: "qwen2.5:7b", enable_tier3_local_llm: true, outlook_category_map: { Q1: "Q1: Do Now", Q2: "Q2: Schedule", Q3: "Q3: Delegate", Q4: "Q4: Eliminate" }, readiness: { outlook_credential: "Microsoft Outlook account", postgres_credential: "pending", local_llm: "direct Ollama Tier 3 enabled for dry-run metadata classification" } } }}') }
         ]
       }
     }
@@ -2980,7 +2979,7 @@ function classify(message) {
   const lowValue = /(newsletter|unsubscribe|promo|sale|digest|webinar)/i.test(subject);
 
   if (githubActionsFailure) return { quadrant: 'Q4', tier_fired: 1, confidence: 0.86, reason: 'GitHub Actions failure notification is low-value automation noise for this mailbox.' };
-  if (suspicious) return { quadrant: 'QR', tier_fired: 1, confidence: 0.9, reason: 'Suspicious financial/security language from external or attachment-bearing message.' };
+  if (suspicious) return { quadrant: 'Q4', tier_fired: 1, confidence: 0.9, reason: 'Suspicious financial/security language is forced into eliminate rather than quarantine.' };
   if (urgent) return { quadrant: 'Q1', tier_fired: 1, confidence: 0.82, reason: 'Urgent/high-importance metadata indicates do-now work.' };
   if (planning) return { quadrant: 'Q2', tier_fired: 1, confidence: 0.78, reason: 'Planning/scheduling language indicates important non-urgent work.' };
   if (delegate) return { quadrant: 'Q3', tier_fired: 1, confidence: 0.74, reason: 'Review/delegation language indicates candidate for delegation.' };
@@ -3025,7 +3024,7 @@ const tier3Messages = results
     importance: item.importance,
     has_attachments: item.has_attachments
   }));
-const exceptions = results.filter((item) => item.quadrant === 'QR' || (item.needs_tier3 && config.enable_tier3_local_llm !== true));
+const exceptions = results.filter((item) => item.needs_tier3 && config.enable_tier3_local_llm !== true);
 const slackMessage = [
   'Email categorizer dry-run exception summary',
   'Mode: ' + ($json.mode || 'unknown'),
@@ -3087,7 +3086,7 @@ const ollamaTier3 = node({
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
-      jsonBody: expr('{{ { model: $json.config.local_llm_model, stream: false, format: "json", messages: [{ role: "system", content: "You classify email metadata into Eisenhower categories. Use only the provided metadata. Do not infer from email bodies or attachments. Return strict JSON only." }, { role: "user", content: "Classify each message as one of Q1, Q2, Q3, Q4, or QR. Q1 means urgent and important. Q2 means important but not urgent. Q3 means urgent but delegable. Q4 means low-value or eliminate. QR means quarantine/security/spam risk. Return JSON: {\\\\\\"classifications\\\\\\":[{\\\\\\"message_id\\\\\\":\\\\\\"...\\\\\\",\\\\\\"quadrant\\\\\\":\\\\\\"Q1|Q2|Q3|Q4|QR\\\\\\",\\\\\\"confidence\\\\\\":0.0,\\\\\\"reason\\\\\\":\\\\\\"short reason\\\\\\"}]}. Messages: " + JSON.stringify($json.tier3_messages) }] } }}'),
+      jsonBody: expr('{{ { model: $json.config.local_llm_model, stream: false, format: "json", messages: [{ role: "system", content: "You classify email metadata into Eisenhower categories. Use only the provided metadata. Do not infer from email bodies or attachments. Return strict JSON only." }, { role: "user", content: "Classify each message as one of Q1, Q2, Q3, or Q4. You must choose one of the four categories; do not return quarantine, unknown, or needs review. Q1 means urgent and important. Q2 means important but not urgent. Q3 means urgent but delegable. Q4 means low-value, spam, security risk, or eliminate. Return JSON: {\\\\\\"classifications\\\\\\":[{\\\\\\"message_id\\\\\\":\\\\\\"...\\\\\\",\\\\\\"quadrant\\\\\\":\\\\\\"Q1|Q2|Q3|Q4\\\\\\",\\\\\\"confidence\\\\\\":0.0,\\\\\\"reason\\\\\\":\\\\\\"short reason\\\\\\"}]}. Messages: " + JSON.stringify($json.tier3_messages) }] } }}'),
       options: { timeout: 120000 }
     }
   }
@@ -3105,7 +3104,7 @@ const mergeTier3 = node({
 const original = $('Classify Metadata Dry Run').item.json;
 const config = original.config || {};
 const categoryMap = config.outlook_category_map || {};
-const allowed = new Set(['Q1', 'Q2', 'Q3', 'Q4', 'QR']);
+const allowed = new Set(['Q1', 'Q2', 'Q3', 'Q4']);
 
 function parseJsonContent(content) {
   let text = String(content || '').trim();
@@ -3156,7 +3155,7 @@ const results = (original.classification_results || []).map((item) => {
   };
 });
 
-const exceptions = results.filter((item) => item.quadrant === 'QR' || item.needs_tier3 || /^failed_/.test(String(item.tier3_status || '')));
+const exceptions = results.filter((item) => item.needs_tier3 || /^failed_/.test(String(item.tier3_status || '')));
 const slackMessage = [
   'Email categorizer dry-run exception summary',
   'Mode: ' + (original.mode || 'unknown'),
