@@ -9,7 +9,8 @@
     "source": "n8n",
     "interval": "Every 5 minutes",
     "manual": "Manual validation trigger",
-    "test_path": "/webhook/email-categorizer-test"
+    "test_path": "/webhook/email-categorizer-test",
+    "schedule_behavior": "The schedule trigger posts to the test webhook with use_outlook=true so scheduled runs use the same live path as manual cleanup runs."
   },
   "credentials": [
     "Microsoft Outlook OAuth2 credential in n8n",
@@ -72,6 +73,12 @@
       "id": "schedule",
       "type": "Schedule Trigger",
       "name": "Email Categorizer Live Schedule"
+    },
+    {
+      "id": "run_webhook_from_schedule",
+      "type": "HTTP Request",
+      "name": "Run Email Categorizer Webhook From Schedule",
+      "request": "POST https://n8n.tradecredit.agency/webhook/email-categorizer-test with {\"use_outlook\":true,\"source\":\"schedule\"}"
     },
     {
       "id": "config",
