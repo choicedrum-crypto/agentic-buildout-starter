@@ -133,7 +133,7 @@ function buildEmailCategorizerRestWorkflow(name) {
     dry_run: false,
     enable_schedule_processing: true,
     batch_limit: 20,
-    outlook_fetch_limit: 100,
+    outlook_fetch_limit: 500,
     include_read_messages: true,
     tier3_confidence_threshold: 0.65,
     slack_exception_channel: '#workflow-builder',
@@ -692,7 +692,7 @@ return [{
       {
         parameters: {
           method: 'GET',
-          url: '={{ "https://graph.microsoft.com/v1.0/users/" + $json.config.ms_user_email + "/mailFolders/inbox/messages?$top=" + Number($json.config.outlook_fetch_limit || $json.config.batch_limit || 25) + "&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime,importance,hasAttachments,categories,isRead&$orderby=receivedDateTime desc" + ($json.config.include_read_messages === true ? "" : "&$filter=isRead eq false") }}',
+          url: '={{ "https://graph.microsoft.com/v1.0/users/" + $json.config.ms_user_email + "/mailFolders/inbox/messages?$top=" + Number($json.config.outlook_fetch_limit || $json.config.batch_limit || 25) + "&$select=id,internetMessageId,subject,from,toRecipients,ccRecipients,receivedDateTime,importance,hasAttachments,categories,isRead&$filter=" + ($json.config.include_read_messages === true ? "not%20categories/any()" : "isRead%20eq%20false%20and%20not%20categories/any()") }}',
           authentication: 'predefinedCredentialType',
           nodeCredentialType: 'microsoftOutlookOAuth2Api',
           sendHeaders: true,
